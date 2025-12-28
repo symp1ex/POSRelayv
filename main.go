@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"golang.org/x/term"
 )
 
 type Message struct {
@@ -22,17 +23,35 @@ type Message struct {
 	Error     string                 `json:"error,omitempty"`
 }
 
+func readPassword(prompt string) (string, error) {
+	fmt.Print(prompt)
+
+	// Если stdin — терминал, читаем скрыто
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+
+	// Иначе (IDE, debug, pipe) — обычный ввод
+	reader := bufio.NewReader(os.Stdin)
+	text, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return text[:len(text)-1], nil
+}
+
 func main() {
 	server := "ws://10.127.33.42:22233/ws"
 
 	var clientID string
-	var password string
 
 	fmt.Print("Введите id-подключения: ")
 	fmt.Scan(&clientID)
-
-	fmt.Print("Введите пароль: ")
-	fmt.Scan(&password)
 
 	conn, _, err := websocket.DefaultDialer.Dial(server, nil)
 	if err != nil {
@@ -41,24 +60,33 @@ func main() {
 
 	adminID := uuid.NewString()
 
-	// === AUTH ===
-	conn.WriteJSON(Message{
-		Type:     "auth",
-		ClientID: clientID,
-		Password: password,
-	})
+	// === AUTH LOOP ===
+	for {
+		password, err := readPassword("Введите пароль: ")
+		if err != nil {
+			fmt.Println("Ошибка ввода пароля:", err)
+			continue
+		}
 
-	var authResp Message
-	if err := conn.ReadJSON(&authResp); err != nil {
-		panic(err)
-	}
+		conn.WriteJSON(Message{
+			Type:     "auth",
+			ClientID: clientID,
+			Password: password,
+		})
 
-	if authResp.Type != "auth_ok" {
+		var authResp Message
+		if err := conn.ReadJSON(&authResp); err != nil {
+			fmt.Println("Ошибка ответа сервера:", err)
+			continue
+		}
+
+		if authResp.Type == "auth_ok" {
+			fmt.Println("Авторизация успешна")
+			break
+		}
+
 		fmt.Println("Ошибка авторизации:", authResp.Error)
-		return
 	}
-
-	fmt.Println("Авторизация успешна")
 
 	// === REGISTER ===
 	conn.WriteJSON(Message{
@@ -70,7 +98,10 @@ func main() {
 	go func() {
 		for {
 			var msg Message
-			conn.ReadJSON(&msg)
+			if err := conn.ReadJSON(&msg); err != nil {
+				fmt.Println("Ошибка соединения:", err)
+				return
+			}
 
 			switch msg.Type {
 
