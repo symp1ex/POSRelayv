@@ -27,7 +27,7 @@ type Message struct {
 
 // ===== ВВОД ПАРОЛЯ =====
 
-func readPassword(prompt string) (string, error) {
+func readPassword(reader *bufio.Reader, prompt string) (string, error) {
 	fmt.Print(prompt)
 
 	if term.IsTerminal(int(os.Stdin.Fd())) {
@@ -36,10 +36,13 @@ func readPassword(prompt string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
+		// ВАЖНО: съедаем оставшийся '\n'
+		_, _ = reader.ReadString('\n')
+
 		return string(b), nil
 	}
 
-	reader := bufio.NewReader(os.Stdin)
 	text, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -49,16 +52,17 @@ func readPassword(prompt string) (string, error) {
 
 // ===== АВТОРИЗАЦИЯ =====
 
-func authLoop(conn *websocket.Conn, reader *bufio.Reader) string {
+func authLoop(conn *websocket.Conn, reader *bufio.Reader) (string, error) {
 	for {
 		fmt.Print("Введите id-подключения: ")
+
 		clientID, err := reader.ReadString('\n')
 		if err != nil {
-			continue
+			return "", err
 		}
 		clientID = strings.TrimSpace(clientID)
 
-		password, err := readPassword("Введите пароль: ")
+		password, err := readPassword(reader, "Введите пароль: ")
 		if err != nil {
 			fmt.Println("Ошибка ввода пароля:", err)
 			continue
@@ -69,19 +73,17 @@ func authLoop(conn *websocket.Conn, reader *bufio.Reader) string {
 			ClientID: clientID,
 			Password: password,
 		}); err != nil {
-			fmt.Println("Ошибка отправки:", err)
-			continue
+			return "", err // ← КЛЮЧЕВО
 		}
 
 		var resp Message
 		if err := conn.ReadJSON(&resp); err != nil {
-			fmt.Println("Ошибка сервера:", err)
-			continue
+			return "", err // ← КЛЮЧЕВО
 		}
 
 		if resp.Type == "auth_ok" {
 			fmt.Println("Авторизация успешна")
-			return clientID
+			return clientID, nil
 		}
 
 		fmt.Println("Ошибка авторизации:", resp.Error)
@@ -103,6 +105,12 @@ func connectWithRetry(server string) *websocket.Conn {
 	}
 }
 
+func drainStdin(reader *bufio.Reader) {
+	for reader.Buffered() > 0 {
+		_, _ = reader.ReadString('\n')
+	}
+}
+
 // ===== MAIN =====
 
 func main() {
@@ -110,12 +118,20 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		// ===== ПОДКЛЮЧЕНИЕ С ПОВТОРАМИ =====
+		// ---------- CONNECT ----------
 		conn := connectWithRetry(server)
 
-		clientID := authLoop(conn, reader)
-		adminID := uuid.NewString()
+		drainStdin(reader)
 
+		// ---------- AUTH ----------
+		clientID, err := authLoop(conn, reader)
+		if err != nil {
+			fmt.Println("Соединение потеряно во время авторизации\n")
+			conn.Close()
+			continue
+		}
+
+		adminID := uuid.NewString()
 		_ = conn.WriteJSON(Message{
 			Type: "register",
 			Role: "admin",
@@ -123,34 +139,15 @@ func main() {
 		})
 
 		sessionClosed := make(chan struct{})
-		inputCh := make(chan string)
-		stopInput := make(chan struct{})
 
-		// ===== ЕДИНСТВЕННЫЙ stdin-reader =====
-		go func() {
-			defer close(inputCh)
-			for {
-				select {
-				case <-stopInput:
-					return
-				default:
-					line, err := reader.ReadString('\n')
-					if err != nil {
-						return
-					}
-					inputCh <- strings.TrimRight(line, "\r\n")
-				}
-			}
-		}()
-
-		// ===== ЧТЕНИЕ СЕРВЕРА =====
+		// ---------- SERVER READER ----------
 		go func() {
 			defer close(sessionClosed)
 
 			for {
 				var msg Message
 				if err := conn.ReadJSON(&msg); err != nil {
-					fmt.Println("\nСоединение разорвано")
+					fmt.Println("\nСоединение разорвано, нажмите Enter для продолжения")
 					return
 				}
 
@@ -172,33 +169,43 @@ func main() {
 					}
 
 				case "session_closed":
-					fmt.Println("\nСессия клиента завершена")
+					fmt.Println("\nСессия клиента завершена, нажмите Enter для продолжения")
 					return
 				}
 			}
 		}()
 
-		// ===== ОСНОВНОЙ ЦИКЛ =====
+		// ---------- SESSION LOOP ----------
 		for {
 			select {
 			case <-sessionClosed:
-				close(stopInput)
 				conn.Close()
 				fmt.Println("\nПереподключение к серверу...\n")
 				goto RECONNECT
+			default:
+			}
 
-			case cmd, ok := <-inputCh:
-				if !ok {
-					continue
-				}
+			cmd, err := reader.ReadString('\n')
+			if err != nil {
+				continue
+			}
 
-				_ = conn.WriteJSON(Message{
-					Type:      "command",
-					ClientID:  clientID,
-					CommandID: uuid.NewString(),
-					Command:   cmd,
-					ID:        adminID,
-				})
+			cmd = strings.TrimRight(cmd, "\r\n")
+			if cmd == "" {
+				continue
+			}
+
+			if err := conn.WriteJSON(Message{
+				Type:      "command",
+				ClientID:  clientID,
+				CommandID: uuid.NewString(),
+				Command:   cmd,
+				ID:        adminID,
+			}); err != nil {
+				// соединение умерло во время сессии
+				conn.Close()
+				fmt.Println("\nСоединение потеряно, переподключение...\n")
+				goto RECONNECT
 			}
 		}
 
