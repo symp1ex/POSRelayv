@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"posrelayd-viewer/config"
 	"strings"
 	"syscall"
 	"time"
@@ -123,7 +124,8 @@ func drainStdin(reader *bufio.Reader) {
 // ===== MAIN =====
 
 func main() {
-	server := "ws://10.127.33.42:22233/ws"
+	server := config.Cfg.Connection.Url
+	apikey := config.Cfg.Connection.APIKey
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -132,7 +134,7 @@ func main() {
 
 		if err := conn.WriteJSON(Message{
 			Type:   "admin_hello",
-			ApiKey: "b5679e9e-b5b5-4eaf-bb99-83dba95f9f53",
+			ApiKey: apikey,
 		}); err != nil {
 			fmt.Println("Ошибка отправки admin_hello:", err)
 			conn.Close()
