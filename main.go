@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"posrelayd-viewer/config"
+	"posrelayd-viewer/crypto"
 	"strings"
 	"syscall"
 	"time"
@@ -124,8 +125,18 @@ func drainStdin(reader *bufio.Reader) {
 // ===== MAIN =====
 
 func main() {
-	server := config.Cfg.Connection.Url
-	apikey := config.Cfg.Connection.APIKey
+	server, ok := crypto.Decrypt(config.Cfg.Connection.Url)
+	if !ok {
+		fmt.Println("Не удалось расшифровать адрес сервера")
+		return
+	}
+
+	apikey, ok := crypto.Decrypt(config.Cfg.Connection.APIKey)
+	if !ok {
+		fmt.Println("Не удалось расшифровать API ключ")
+		return
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
