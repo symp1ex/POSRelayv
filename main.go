@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -125,6 +126,19 @@ func drainStdin(reader *bufio.Reader) {
 // ===== MAIN =====
 
 func main() {
+	setup := flag.Bool("setup", false, "configure application")
+	flag.Parse()
+
+	if *setup {
+		if err := config.Setup(); err != nil {
+			fmt.Println("Ошибка настройки:", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Конфигурация успешно сохранена")
+		return
+	}
+
 	server, ok := crypto.Decrypt(config.Cfg.Connection.Url)
 	if !ok {
 		fmt.Println("Не удалось расшифровать адрес сервера")

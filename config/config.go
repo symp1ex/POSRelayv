@@ -1,9 +1,13 @@
 package config
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	"posrelayd-viewer/crypto"
+	"strings"
 )
 
 const configPath = "config.json"
@@ -11,7 +15,7 @@ const configPath = "config.json"
 var Cfg Config
 
 type Config struct {
-	Connection ConnectionConfig `json:"connection""`
+	Connection ConnectionConfig `json:"connection"`
 	Logs       LogsConfig       `json:"logs"`
 }
 
@@ -31,6 +35,41 @@ func init() {
 		log.Println("[config]", err)
 	}
 	Cfg = cfg
+}
+
+func Setup() error {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Введите адрес сервера: ")
+	url, err := reader.ReadString('\n')
+	if err != nil {
+		return err
+	}
+
+	url = strings.TrimSpace(url)
+
+	fmt.Print("Введите API ключ: ")
+	apiKey, err := reader.ReadString('\n')
+	if err != nil {
+		return err
+	}
+
+	apiKey = strings.TrimSpace(apiKey)
+
+	encURL, err := crypto.Encrypt(url)
+	if err != nil {
+		return err
+	}
+
+	encKey, err := crypto.Encrypt(apiKey)
+	if err != nil {
+		return err
+	}
+
+	Cfg.Connection.Url = encURL
+	Cfg.Connection.APIKey = encKey
+
+	return save(Cfg)
 }
 
 func load() (Config, error) {
