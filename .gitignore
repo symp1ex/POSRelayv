@@ -3,3 +3,4 @@
 *.exe
 *.txt
 clients.csv
+tester.go
