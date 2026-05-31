@@ -85,7 +85,13 @@ func authLoop(conn *websocket.Conn, reader *bufio.Reader, adminID string) (strin
 		}
 
 		if resp.Type == "auth_ok" {
+
 			fmt.Println("Авторизация успешна")
+
+			if resp.ClientID != "" {
+				return resp.ClientID, nil
+			}
+
 			return clientID, nil
 		}
 
