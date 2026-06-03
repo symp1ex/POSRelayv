@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"posrelayd-viewer/crypto"
+	"posrelayd-viewer/internal/crypto"
 	"strings"
 )
 
@@ -35,6 +35,32 @@ func init() {
 		log.Println("[config]", err)
 	}
 	Cfg = cfg
+}
+
+func load() (Config, error) {
+	cfg := defaultConfig()
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		_ = save(cfg)
+		return cfg, err
+	}
+
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		_ = save(cfg)
+		return cfg, err
+	}
+
+	return cfg, nil
+}
+
+func save(cfg Config) error {
+	data, err := json.MarshalIndent(cfg, "", "\t")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, data, 0644)
 }
 
 func Setup() error {
@@ -70,32 +96,6 @@ func Setup() error {
 	Cfg.Connection.APIKey = encKey
 
 	return save(Cfg)
-}
-
-func load() (Config, error) {
-	cfg := defaultConfig()
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		_ = save(cfg)
-		return cfg, err
-	}
-
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		_ = save(cfg)
-		return cfg, err
-	}
-
-	return cfg, nil
-}
-
-func save(cfg Config) error {
-	data, err := json.MarshalIndent(cfg, "", "\t")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(configPath, data, 0644)
 }
 
 func defaultConfig() Config {
