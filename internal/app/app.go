@@ -65,6 +65,8 @@ func Run() {
 
 		adminID := uuid.NewString()
 
+		stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
+
 		// ---------- AUTH ----------
 		clientID, err := ws.AuthLoop(conn, app.reader, adminID)
 		if err != nil {
@@ -84,6 +86,8 @@ func Run() {
 		ws.StartCtrlCHandler(conn, clientID, adminID)
 
 		ws.StartServerReader(conn, sessionClosed)
+
+		stopKeepAlive()
 
 		ws.RunSessionLoop(conn, app.reader, sessionClosed, clientID, adminID)
 		continue

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -116,5 +117,38 @@ func ConnectWithRetry(server string) *websocket.Conn {
 
 		fmt.Println("Соединение с сервером установлено")
 		return conn
+	}
+}
+
+func StartKeepAlive(conn *websocket.Conn, interval time.Duration) func() {
+	done := make(chan struct{})
+	var once sync.Once
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				err := conn.WriteControl(
+					websocket.PingMessage,
+					[]byte("admin-keepalive"),
+					time.Now().Add(5*time.Second),
+				)
+				if err != nil {
+					return
+				}
+
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(done)
+		})
 	}
 }
