@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/google/uuid"
+	"golang.org/x/sys/windows/registry"
 	"os"
 	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/console"
 	"posrelayd-viewer/internal/crypto"
 	"posrelayd-viewer/internal/ws"
+	"strings"
 	"time"
 )
 
@@ -16,6 +18,37 @@ type App struct {
 	server string
 	apiKey string
 	reader *bufio.Reader
+}
+
+func getMachineGUID() (string, error) {
+	key, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Cryptography`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return "", err
+	}
+	defer key.Close()
+
+	guid, _, err := key.GetStringValue("MachineGuid")
+	if err != nil {
+		return "", err
+	}
+
+	return guid, nil
+}
+
+func getHardwareID() (string, error) {
+	machineGUID, err := getMachineGUID()
+	if err != nil {
+		return "", err
+	}
+
+	machineGUID = strings.ToLower(strings.TrimSpace(machineGUID))
+	hardwareUUID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(machineGUID))
+
+	return hardwareUUID.String(), nil
 }
 
 func LoadApp() (*App, error) {
@@ -63,12 +96,19 @@ func Run() {
 
 		console.DrainStdin(app.reader)
 
-		adminID := uuid.NewString()
+		hardwareID, err := getHardwareID()
+		if err != nil {
+			fmt.Println("Не удалось получить hardwareID:", err)
+			conn.Close()
+			continue
+		}
+
+		sessionID := uuid.NewString()
 
 		stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
 
 		// ---------- AUTH ----------
-		clientID, err := ws.AuthLoop(conn, app.reader, adminID)
+		clientID, err := ws.AuthLoop(conn, app.reader, sessionID)
 		if err != nil {
 			fmt.Println("Соединение потеряно во время авторизации\n")
 			conn.Close()
@@ -76,20 +116,21 @@ func Run() {
 		}
 
 		_ = conn.WriteJSON(ws.Message{
-			Type: "register",
-			Role: "admin",
-			ID:   adminID,
+			Type:       "register",
+			Role:       "admin",
+			ID:         sessionID,
+			HardwareID: hardwareID,
 		})
 
 		sessionClosed := make(chan struct{})
 
-		ws.StartCtrlCHandler(conn, clientID, adminID)
+		ws.StartCtrlCHandler(conn, clientID, sessionID)
 
 		ws.StartServerReader(conn, sessionClosed)
 
 		stopKeepAlive()
 
-		ws.RunSessionLoop(conn, app.reader, sessionClosed, clientID, adminID)
+		ws.RunSessionLoop(conn, app.reader, sessionClosed, clientID, sessionID)
 		continue
 	}
 }
