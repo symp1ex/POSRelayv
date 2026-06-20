@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func AuthLoop(conn *websocket.Conn, reader *bufio.Reader, adminID string) (string, error) {
+func AuthLoop(conn *websocket.Conn, reader *bufio.Reader, sessionID string) (string, error) {
 	for {
 		fmt.Print("Введите id-подключения: ")
 
@@ -26,7 +26,7 @@ func AuthLoop(conn *websocket.Conn, reader *bufio.Reader, adminID string) (strin
 
 		if err := conn.WriteJSON(Message{
 			Type:     "auth",
-			ID:       adminID,
+			ID:       sessionID,
 			ClientID: clientID,
 			Password: password,
 		}); err != nil {

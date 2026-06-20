@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func StartCtrlCHandler(conn *websocket.Conn, clientID, adminID string) {
+func StartCtrlCHandler(conn *websocket.Conn, clientID, sessionID string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGINT)
 
@@ -24,7 +24,7 @@ func StartCtrlCHandler(conn *websocket.Conn, clientID, adminID string) {
 			_ = conn.WriteJSON(Message{
 				Type:     "control",
 				ClientID: clientID,
-				ID:       adminID,
+				ID:       sessionID,
 				Command:  "CTRL_C",
 			})
 		}
@@ -62,7 +62,7 @@ func RunSessionLoop(
 	reader *bufio.Reader,
 	sessionClosed chan struct{},
 	clientID string,
-	adminID string,
+	sessionID string,
 ) {
 	for {
 		select {
@@ -88,7 +88,7 @@ func RunSessionLoop(
 			ClientID:  clientID,
 			CommandID: uuid.NewString(),
 			Command:   cmd,
-			ID:        adminID,
+			ID:        sessionID,
 		}); err != nil {
 			// соединение умерло во время сессии
 			conn.Close()
