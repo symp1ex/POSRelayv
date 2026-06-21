@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 	"os"
 	"os/signal"
+	"posrelayd-viewer/internal/gui"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,13 +32,24 @@ func StartCtrlCHandler(conn *websocket.Conn, clientID, sessionID string) {
 	}()
 }
 
-func StartServerReader(conn *websocket.Conn, sessionClosed chan struct{}) {
+func rdSessionID(msg Message, fallback string) string {
+	if msg.SessionID != "" {
+		return msg.SessionID
+	}
+	if msg.ID != "" {
+		return msg.ID
+	}
+	return fallback
+}
+
+func StartServerReader(conn *websocket.Conn, sessionClosed chan struct{}, sessionID string) {
 	go func() {
 		defer close(sessionClosed)
 
 		for {
 			var msg Message
 			if err := conn.ReadJSON(&msg); err != nil {
+				gui.CloseVideoStub(sessionID)
 				fmt.Println("\nСоединение разорвано, нажмите Enter для продолжения")
 				return
 			}
@@ -49,7 +61,33 @@ func StartServerReader(conn *websocket.Conn, sessionClosed chan struct{}) {
 					fmt.Print(out)
 				}
 
+			case "rd_start":
+				fmt.Printf("\n[RD] Принят ack на rd_start: session_id=%s expires_at=%s\n",
+					rdSessionID(msg, sessionID), msg.ExpiresAt)
+
+			case "rd_ready":
+				readySessionID := rdSessionID(msg, sessionID)
+				fmt.Printf("\n[RD] rd-agent зарегистрирован: session_id=%s client_id=%s\n",
+					readySessionID, msg.ClientID)
+
+				if err := gui.OpenVideoStub(readySessionID); err != nil {
+					fmt.Printf("\n[RD] Не удалось открыть нативное окно: %v\n", err)
+				}
+
+			case "rd_closed":
+				closedSessionID := rdSessionID(msg, sessionID)
+				gui.CloseVideoStub(closedSessionID)
+				fmt.Printf("\n[RD] Канал закрыт: session_id=%s reason=%s\n",
+					closedSessionID, msg.Error)
+
+			case "rd_error":
+				errSessionID := rdSessionID(msg, sessionID)
+				gui.CloseVideoStub(errSessionID)
+				fmt.Printf("\n[RD] Ошибка: session_id=%s error=%s\n",
+					errSessionID, msg.Error)
+
 			case "session_closed":
+				gui.CloseVideoStub(sessionID)
 				fmt.Println("\nСессия клиента завершена, нажмите Enter для продолжения")
 				return
 			}

@@ -115,18 +115,35 @@ func Run() {
 			continue
 		}
 
-		_ = conn.WriteJSON(ws.Message{
+		if err := conn.WriteJSON(ws.Message{
 			Type:       "register",
 			Role:       "admin",
 			ID:         sessionID,
 			HardwareID: hardwareID,
-		})
+		}); err != nil {
+			fmt.Println("Не удалось отправить register:", err)
+			conn.Close()
+			continue
+		}
+
+		if err := conn.WriteJSON(ws.Message{
+			Type:      "rd_start",
+			ID:        sessionID,
+			SessionID: sessionID,
+			ClientID:  clientID,
+		}); err != nil {
+			fmt.Println("Не удалось отправить rd_start:", err)
+			conn.Close()
+			continue
+		}
+
+		fmt.Println("Отправлен rd_start")
 
 		sessionClosed := make(chan struct{})
 
 		ws.StartCtrlCHandler(conn, clientID, sessionID)
 
-		ws.StartServerReader(conn, sessionClosed)
+		ws.StartServerReader(conn, sessionClosed, sessionID)
 
 		stopKeepAlive()
 
