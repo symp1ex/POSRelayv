@@ -1,0 +1,55 @@
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: #0b0b0b;
+  color: #d7d7d7;
+  font-family:
+    "Segoe UI",
+    Arial,
+    sans-serif;
+  overflow: hidden;
+}
+
+.rd-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, #202020 0, #111 45%, #050505 100%);
+}
+
+.rd-panel {
+  min-width: 420px;
+  padding: 28px 34px;
+  border: 1px solid #333;
+  border-radius: 12px;
+  background: rgba(20, 20, 20, 0.92);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.rd-title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.rd-subtitle {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: #aaa;
+}
+
+.rd-status {
+  margin-top: 18px;
+  font-size: 13px;
+  color: #8fdd8f;
+}
