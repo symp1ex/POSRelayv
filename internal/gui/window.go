@@ -5,12 +5,12 @@ import (
 	"html"
 	"sync"
 
-	webview "github.com/webview/webview_go"
+	webview2 "github.com/jchv/go-webview2"
 )
 
 type rdWebViewWindow struct {
 	sessionID string
-	w         webview.WebView
+	w         webview2.WebView
 	done      chan struct{}
 }
 
@@ -30,9 +30,9 @@ func OpenVideoStub(sessionID string) error {
 	ready := make(chan error, 1)
 
 	go func() {
-		w := webview.New(true)
+		w := webview2.New(true)
 		if w == nil {
-			ready <- fmt.Errorf("webview.New returned nil")
+			ready <- fmt.Errorf("webview2.New returned nil")
 			return
 		}
 
@@ -45,7 +45,7 @@ func OpenVideoStub(sessionID string) error {
 		windowsByID.Store(sessionID, win)
 
 		w.SetTitle("POSRelay RD " + sessionID)
-		w.SetSize(1280, 720, webview.HintNone)
+		w.SetSize(1280, 720, webview2.HintNone)
 		w.SetHtml(stubHTML(sessionID))
 
 		ready <- nil
