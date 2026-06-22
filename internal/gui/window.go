@@ -250,105 +250,469 @@ func rdHTML(sessionID string) string {
 
   <div class="status" id="status">session_id: ` + safeSessionID + ` | connecting...</div>
 
-  <script>
-    const video = document.getElementById("rd-video");
-    const statusEl = document.getElementById("status");
+<script>
+  const video = document.getElementById("rd-video");
+  const statusEl = document.getElementById("status");
+  const stage = document.querySelector(".stage");
 
-    let pc = null;
-    let lastSize = "";
+  let pc = null;
+  let control = null;
+  let lastSize = "";
 
-    function setStatus(text) {
-      statusEl.textContent = "session_id: ` + safeSessionID + ` | " + text;
+  const sessionID = "` + safeSessionID + `";
+  const browserOrigin = crypto.randomUUID ? crypto.randomUUID() : ("browser-" + Math.random());
+  let msgSeq = 0;
+  let clipboardSeq = 0;
+  let lastClipboardRevision = "";
+  let rdFocused = false;
+  const pressedKeys = new Set();
+
+  function setStatus(text) {
+    statusEl.textContent = "session_id: ` + safeSessionID + ` | " + text;
+  }
+
+  function now() {
+    return Date.now();
+  }
+
+  async function sha256Text(text) {
+    const data = new TextEncoder().encode(text);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return "sha256:" + Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function sendControl(msg) {
+    if (!control || control.readyState !== "open") return false;
+
+    control.send(JSON.stringify({
+      id: String(++msgSeq),
+      session_id: sessionID,
+      ts: now(),
+      ...msg,
+    }));
+
+    return true;
+  }
+
+  function setRDFocus(focused) {
+    if (rdFocused === focused) return;
+
+    rdFocused = focused;
+    sendControl({ type: "focus_changed", focused });
+
+    if (!focused) {
+      releasePressedKeys();
+    }
+  }
+
+  function releasePressedKeys() {
+    for (const code of Array.from(pressedKeys)) {
+      sendControl({
+        type: "key_up",
+        code,
+        key: "",
+        ctrl: false,
+        shift: false,
+        alt: false,
+        meta: false,
+        repeat: false,
+      });
+    }
+    pressedKeys.clear();
+  }
+
+  function reportVideoSize() {
+    if (!video.videoWidth || !video.videoHeight) return;
+
+    const key = video.videoWidth + "x" + video.videoHeight;
+    if (key === lastSize) return;
+
+    lastSize = key;
+
+    const ratio = video.videoWidth / video.videoHeight;
+    document.documentElement.style.setProperty("--stream-ratio", String(ratio));
+
+    if (window.rdVideoMeta) {
+      window.rdVideoMeta(video.videoWidth, video.videoHeight);
+    }
+  }
+
+  function getVideoContentRect() {
+    const rect = video.getBoundingClientRect();
+
+    if (!video.videoWidth || !video.videoHeight) {
+      return rect;
     }
 
-    function reportVideoSize() {
-      if (!video.videoWidth || !video.videoHeight) return;
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const boxRatio = rect.width / rect.height;
 
-      const key = video.videoWidth + "x" + video.videoHeight;
-      if (key === lastSize) return;
-
-      lastSize = key;
-
-      const ratio = video.videoWidth / video.videoHeight;
-      document.documentElement.style.setProperty("--stream-ratio", String(ratio));
-
-      if (window.rdVideoMeta) {
-        window.rdVideoMeta(video.videoWidth, video.videoHeight);
-      }
+    if (boxRatio > videoRatio) {
+      const contentWidth = rect.height * videoRatio;
+      const x = rect.left + (rect.width - contentWidth) / 2;
+      return {
+        left: x,
+        top: rect.top,
+        width: contentWidth,
+        height: rect.height,
+        right: x + contentWidth,
+        bottom: rect.bottom,
+      };
     }
 
-    window.__RD_ON_SIGNAL = async function(raw) {
-      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
-      if (!pc) return;
+    const contentHeight = rect.width / videoRatio;
+    const y = rect.top + (rect.height - contentHeight) / 2;
+    return {
+      left: rect.left,
+      top: y,
+      width: rect.width,
+      height: contentHeight,
+      right: rect.right,
+      bottom: y + contentHeight,
+    };
+  }
 
-      if (msg.type === "rd_answer" && msg.sdp) {
-        await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-        setStatus("remote answer applied");
+  function normalizedPoint(event) {
+    const rect = getVideoContentRect();
+
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+
+    return {
+      x: Math.max(0, Math.min(1, x)),
+      y: Math.max(0, Math.min(1, y)),
+      inside:
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom,
+    };
+  }
+
+  function buttonName(button) {
+    switch (button) {
+      case 0: return "left";
+      case 1: return "middle";
+      case 2: return "right";
+      default: return "left";
+    }
+  }
+
+  video.addEventListener("pointerenter", () => {
+    setRDFocus(true);
+  });
+
+  video.addEventListener("pointerleave", () => {
+    setRDFocus(false);
+  });
+
+  video.addEventListener("pointerdown", (event) => {
+    const p = normalizedPoint(event);
+    if (!p.inside) return;
+
+    video.setPointerCapture?.(event.pointerId);
+    setRDFocus(true);
+
+    event.preventDefault();
+
+    sendControl({
+      type: "mouse_down",
+      x: p.x,
+      y: p.y,
+      button: buttonName(event.button),
+    });
+  });
+
+  video.addEventListener("pointerup", (event) => {
+    const p = normalizedPoint(event);
+    event.preventDefault();
+
+    sendControl({
+      type: "mouse_up",
+      x: p.x,
+      y: p.y,
+      button: buttonName(event.button),
+    });
+  });
+
+  video.addEventListener("pointermove", (event) => {
+    if (!rdFocused) return;
+
+    const p = normalizedPoint(event);
+    if (!p.inside) return;
+
+    event.preventDefault();
+
+    sendControl({
+      type: "mouse_move",
+      x: p.x,
+      y: p.y,
+    });
+  });
+
+  video.addEventListener("wheel", (event) => {
+    if (!rdFocused) return;
+
+    const p = normalizedPoint(event);
+    if (!p.inside) return;
+
+    event.preventDefault();
+
+    sendControl({
+      type: "mouse_wheel",
+      x: p.x,
+      y: p.y,
+      delta_x: Math.trunc(event.deltaX),
+      delta_y: Math.trunc(event.deltaY),
+    });
+  }, { passive: false });
+
+  window.addEventListener("keydown", async (event) => {
+    if (!rdFocused) return;
+
+    event.preventDefault();
+
+    if (event.repeat) return;
+
+    pressedKeys.add(event.code);
+
+    sendControl({
+      type: "key_down",
+      code: event.code,
+      key: event.key,
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      meta: event.metaKey,
+      repeat: event.repeat,
+    });
+
+    if (event.ctrlKey && event.code === "KeyV") {
+      await syncBrowserClipboardToAgent();
+    }
+
+    if (event.ctrlKey && event.code === "KeyC") {
+      sendControl({ type: "clipboard_get" });
+    }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    if (!rdFocused && !pressedKeys.has(event.code)) return;
+
+    event.preventDefault();
+    pressedKeys.delete(event.code);
+
+    sendControl({
+      type: "key_up",
+      code: event.code,
+      key: event.key,
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      meta: event.metaKey,
+      repeat: false,
+    });
+  });
+
+  window.addEventListener("blur", () => {
+    setRDFocus(false);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      setRDFocus(false);
+    }
+  });
+
+  document.addEventListener("copy", async () => {
+    sendControl({ type: "clipboard_get" });
+  });
+
+  document.addEventListener("paste", async () => {
+    await syncBrowserClipboardToAgent();
+  });
+
+  async function syncBrowserClipboardToAgent() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      return;
+    }
+
+    try {
+      const text = await navigator.clipboard.readText();
+      const revision = await sha256Text(text);
+
+      if (revision === lastClipboardRevision) {
         return;
       }
 
-      if (msg.type === "rd_ice" && msg.candidate) {
-        await pc.addIceCandidate(msg.candidate);
+      lastClipboardRevision = revision;
+
+      sendControl({
+        type: "clipboard_sync",
+        origin: browserOrigin,
+        seq: ++clipboardSeq,
+        revision,
+        text,
+      });
+    } catch (err) {
+      setStatus("clipboard read blocked: " + err.message);
+    }
+  }
+
+  async function applyClipboardFromAgent(msg) {
+    if (msg.origin === browserOrigin) {
+      return;
+    }
+
+    if (!msg.text && msg.text !== "") {
+      return;
+    }
+
+    const revision = msg.revision || await sha256Text(msg.text);
+    if (revision === lastClipboardRevision) {
+      return;
+    }
+
+    lastClipboardRevision = revision;
+
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(msg.text);
+    } catch (err) {
+      setStatus("clipboard write blocked: " + err.message);
+    }
+  }
+
+  window.__RD_ON_SIGNAL = async function(raw) {
+    const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!pc) return;
+
+    if (msg.type === "rd_answer" && msg.sdp) {
+      await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+      setStatus("remote answer applied");
+      return;
+    }
+
+    if (msg.type === "rd_ice" && msg.candidate) {
+      await pc.addIceCandidate(msg.candidate);
+    }
+  };
+
+  async function startPeer() {
+    pc = new RTCPeerConnection();
+
+    control = pc.createDataChannel("control", {
+      ordered: true,
+    });
+
+    control.onopen = () => {
+      setStatus("control open");
+      sendControl({ type: "focus_changed", focused: false });
+      sendControl({ type: "clipboard_get" });
+    };
+
+    control.onmessage = async (event) => {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (_) {
+        return;
+      }
+
+      if (msg.type === "rd_agent_ready") {
+        setStatus("agent ready");
+        return;
+      }
+
+      if (msg.type === "clipboard_sync") {
+        await applyClipboardFromAgent(msg);
       }
     };
 
-    async function startPeer() {
-      pc = new RTCPeerConnection();
+    control.onclose = () => {
+      releasePressedKeys();
+      setStatus("control closed");
+    };
 
-      pc.createDataChannel("control");
-      pc.addTransceiver("video", { direction: "recvonly" });
+    control.onerror = () => {
+      releasePressedKeys();
+      setStatus("control error");
+    };
 
-      pc.onicecandidate = (event) => {
-        if (!event.candidate) return;
+    pc.addTransceiver("video", { direction: "recvonly" });
 
-        window.rdSignalOut(JSON.stringify({
-          type: "rd_ice",
-          candidate: event.candidate.toJSON(),
-        }));
-      };
-
-      pc.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-          video.srcObject = event.streams[0];
-        } else {
-          video.srcObject = new MediaStream([event.track]);
-        }
-
-        setStatus("video track received");
-      };
-
-      pc.onconnectionstatechange = () => {
-        setStatus("pc=" + pc.connectionState);
-      };
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) return;
 
       window.rdSignalOut(JSON.stringify({
-        type: "rd_offer",
-        sdp: offer.sdp,
+        type: "rd_ice",
+        candidate: event.candidate.toJSON(),
       }));
+    };
 
-      setStatus("offer sent");
-    }
-
-    video.addEventListener("loadedmetadata", reportVideoSize);
-    setInterval(reportVideoSize, 500);
-
-    window.addEventListener("beforeunload", () => {
-      try {
-        window.rdSignalOut(JSON.stringify({ type: "rd_stop" }));
-      } catch (_) {}
-
-      if (pc) {
-        pc.close();
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        video.srcObject = event.streams[0];
+      } else {
+        video.srcObject = new MediaStream([event.track]);
       }
-    });
 
-    startPeer().catch((err) => {
-      setStatus("error: " + err.message);
-    });
-  </script>
+      setStatus("video track received");
+    };
+
+    pc.onconnectionstatechange = () => {
+      setStatus("pc=" + pc.connectionState);
+
+      if (
+        pc.connectionState === "failed" ||
+        pc.connectionState === "disconnected" ||
+        pc.connectionState === "closed"
+      ) {
+        releasePressedKeys();
+        setRDFocus(false);
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    window.rdSignalOut(JSON.stringify({
+      type: "rd_offer",
+      sdp: offer.sdp,
+    }));
+
+    setStatus("offer sent");
+  }
+
+  video.addEventListener("contextmenu", (event) => event.preventDefault());
+  video.addEventListener("loadedmetadata", reportVideoSize);
+  setInterval(reportVideoSize, 500);
+
+  window.addEventListener("beforeunload", () => {
+    releasePressedKeys();
+
+    try {
+      sendControl({ type: "focus_changed", focused: false });
+    } catch (_) {}
+
+    try {
+      window.rdSignalOut(JSON.stringify({ type: "rd_stop" }));
+    } catch (_) {}
+
+    if (pc) {
+      pc.close();
+    }
+  });
+
+  startPeer().catch((err) => {
+    setStatus("error: " + err.message);
+  });
+</script>
 </body>
 </html>`
 }
