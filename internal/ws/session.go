@@ -42,14 +42,22 @@ func rdSessionID(msg Message, fallback string) string {
 	return fallback
 }
 
-func StartServerReader(conn *websocket.Conn, sessionClosed chan struct{}, sessionID string) {
+func StartServerReader(
+	conn *websocket.Conn,
+	sessionClosed chan struct{},
+	sessionID string,
+	clientID string,
+	server string,
+	apiKey string,
+) {
 	go func() {
+		var rdViewer *RDViewer
 		defer close(sessionClosed)
 
 		for {
 			var msg Message
 			if err := conn.ReadJSON(&msg); err != nil {
-				gui.CloseVideoStub(sessionID)
+				gui.CloseRDWindow(sessionID)
 				fmt.Println("\nСоединение разорвано, нажмите Enter для продолжения")
 				return
 			}
@@ -70,24 +78,50 @@ func StartServerReader(conn *websocket.Conn, sessionClosed chan struct{}, sessio
 				fmt.Printf("\n[RD] rd-agent зарегистрирован: session_id=%s client_id=%s\n",
 					readySessionID, msg.ClientID)
 
-				if err := gui.OpenVideoStub(readySessionID); err != nil {
-					fmt.Printf("\n[RD] Не удалось открыть нативное окно: %v\n", err)
+				if rdViewer != nil {
+					continue
 				}
+
+				v, err := StartRDViewer(server, apiKey, readySessionID, clientID)
+				if err != nil {
+					fmt.Printf("\n[RD] Не удалось запустить RD viewer: %v\n", err)
+					continue
+				}
+
+				rdViewer = v
+				fmt.Printf("\n[RD] RD viewer зарегистрирован как rd_admin: session_id=%s\n", readySessionID)
 
 			case "rd_closed":
 				closedSessionID := rdSessionID(msg, sessionID)
-				gui.CloseVideoStub(closedSessionID)
+
+				if rdViewer != nil {
+					rdViewer.Close()
+					rdViewer = nil
+				}
+
+				gui.CloseRDWindow(closedSessionID)
 				fmt.Printf("\n[RD] Канал закрыт: session_id=%s reason=%s\n",
 					closedSessionID, msg.Error)
 
 			case "rd_error":
 				errSessionID := rdSessionID(msg, sessionID)
-				gui.CloseVideoStub(errSessionID)
+
+				if rdViewer != nil {
+					rdViewer.Close()
+					rdViewer = nil
+				}
+
+				gui.CloseRDWindow(errSessionID)
 				fmt.Printf("\n[RD] Ошибка: session_id=%s error=%s\n",
 					errSessionID, msg.Error)
 
 			case "session_closed":
-				gui.CloseVideoStub(sessionID)
+				if rdViewer != nil {
+					rdViewer.Close()
+					rdViewer = nil
+				}
+
+				gui.CloseRDWindow(sessionID)
 				fmt.Println("\nСессия клиента завершена, нажмите Enter для продолжения")
 				return
 			}

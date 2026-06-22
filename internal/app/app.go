@@ -143,11 +143,11 @@ func Run() {
 
 		ws.StartCtrlCHandler(conn, clientID, sessionID)
 
-		ws.StartServerReader(conn, sessionClosed, sessionID)
-
-		stopKeepAlive()
+		ws.StartServerReader(conn, sessionClosed, sessionID, clientID, app.server, app.apiKey)
 
 		ws.RunSessionLoop(conn, app.reader, sessionClosed, clientID, sessionID)
+
+		stopKeepAlive()
 		continue
 	}
 }
