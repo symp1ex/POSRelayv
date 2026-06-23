@@ -3,15 +3,17 @@ package app
 import (
 	"bufio"
 	"fmt"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"golang.org/x/sys/windows/registry"
-	"os"
+
 	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/console"
 	"posrelayd-viewer/internal/crypto"
 	"posrelayd-viewer/internal/ws"
-	"strings"
-	"time"
 )
 
 type App struct {
@@ -103,7 +105,7 @@ func Run() {
 			continue
 		}
 
-		sessionID := uuid.NewString()
+		sessionID := "211f7d03-2271-4f77-a44a-e337c6805970"
 
 		stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
 
@@ -150,4 +152,101 @@ func Run() {
 		stopKeepAlive()
 		continue
 	}
+}
+
+func StartHiddenSession(clientID string, password string) error {
+	clientID = strings.TrimSpace(clientID)
+
+	if clientID == "" {
+		return fmt.Errorf("ID клиента не указан")
+	}
+
+	if password == "" {
+		return fmt.Errorf("Пароль не указан")
+	}
+
+	loadedApp, err := LoadApp()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			conn := ws.ConnectWithRetry(loadedApp.server)
+
+			if err := ws.AdminHello(conn, loadedApp.apiKey); err != nil {
+				fmt.Println(err)
+				conn.Close()
+
+				fmt.Println("Повторная попытка через 10 секунд...")
+				time.Sleep(10 * time.Second)
+
+				continue
+			}
+
+			hardwareID, err := getHardwareID()
+			if err != nil {
+				fmt.Println("Не удалось получить hardwareID:", err)
+				conn.Close()
+				time.Sleep(10 * time.Second)
+				continue
+			}
+
+			sessionID := uuid.NewString()
+
+			stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
+
+			authorizedClientID, err := ws.AuthWithCredentials(conn, sessionID, clientID, password)
+			if err != nil {
+				fmt.Println("Ошибка авторизации:", err)
+				conn.Close()
+				stopKeepAlive()
+				return
+			}
+
+			if err := conn.WriteJSON(ws.Message{
+				Type:       "register",
+				Role:       "admin",
+				ID:         sessionID,
+				HardwareID: hardwareID,
+			}); err != nil {
+				fmt.Println("Не удалось отправить register:", err)
+				conn.Close()
+				stopKeepAlive()
+				continue
+			}
+
+			if err := conn.WriteJSON(ws.Message{
+				Type:      "rd_start",
+				ID:        sessionID,
+				SessionID: sessionID,
+				ClientID:  authorizedClientID,
+			}); err != nil {
+				fmt.Println("Не удалось отправить rd_start:", err)
+				conn.Close()
+				stopKeepAlive()
+				continue
+			}
+
+			fmt.Println("Скрытая сессия запущена")
+
+			sessionClosed := make(chan struct{})
+
+			ws.StartServerReader(
+				conn,
+				sessionClosed,
+				sessionID,
+				authorizedClientID,
+				loadedApp.server,
+				loadedApp.apiKey,
+			)
+
+			ws.WaitSessionClosed(conn, sessionClosed)
+
+			stopKeepAlive()
+			return
+		}
+	}()
+
+	return nil
 }

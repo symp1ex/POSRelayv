@@ -30,7 +30,7 @@ func rdWebURL(sessionID string) (string, error) {
 	}
 
 	if sessionID == "" {
-		sessionID = "rd-session"
+		return base, nil
 	}
 
 	return base + "?session_id=" + url.QueryEscape(sessionID), nil
@@ -92,25 +92,24 @@ func (h *rdWebHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.URL.Query().Get("session_id")
-	if sessionID == "" {
-		sessionID = "rd-session"
-	}
-
-	bootstrap, err := json.Marshal(map[string]string{
-		"sessionID": sessionID,
-	})
-	if err != nil {
-		http.Error(w, "Failed to prepare RD bootstrap", http.StatusInternalServerError)
-		return
-	}
-
-	bootstrapTag := `<script>window.__RD_BOOTSTRAP__ = ` + string(bootstrap) + `;</script>`
 	htmlText := string(htmlBytes)
 
-	if strings.Contains(htmlText, "</head>") {
-		htmlText = strings.Replace(htmlText, "</head>", bootstrapTag+"\n</head>", 1)
-	} else {
-		htmlText = bootstrapTag + htmlText
+	if sessionID != "" {
+		bootstrap, err := json.Marshal(map[string]string{
+			"sessionID": sessionID,
+		})
+		if err != nil {
+			http.Error(w, "Failed to prepare RD bootstrap", http.StatusInternalServerError)
+			return
+		}
+
+		bootstrapTag := `<script>window.__RD_BOOTSTRAP__ = ` + string(bootstrap) + `;</script>`
+
+		if strings.Contains(htmlText, "</head>") {
+			htmlText = strings.Replace(htmlText, "</head>", bootstrapTag+"\n</head>", 1)
+		} else {
+			htmlText = bootstrapTag + htmlText
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

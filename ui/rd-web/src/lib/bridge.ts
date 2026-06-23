@@ -11,8 +11,18 @@ export type RDIncomingSignal = {
   error?: string;
 };
 
+export type StartHiddenConsoleResult = {
+  ok: boolean;
+  message?: string;
+};
+
 declare global {
   interface Window {
+    startHiddenConsole?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
+    mainWindowMinimize?: () => void;
+    mainWindowClose?: () => void;
+    mainWindowDrag?: () => void;
+
     rdSignalOut: (raw: string) => void;
     rdVideoMeta?: (width: number, height: number) => void;
     rdClipboardRead?: () => string | Promise<string>;

@@ -3,6 +3,7 @@ package gui
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strconv"
 	"sync"
 
@@ -22,9 +23,83 @@ type rdWebViewWindow struct {
 	send      func(OutgoingSignal) error
 }
 
+type StartSessionHandler func(clientID string, password string) error
+
 var (
 	windowsByID sync.Map // sessionID -> *rdWebViewWindow
 )
+
+func OpenMainWindow(startSession StartSessionHandler) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	w := webview2.New(true)
+	if w == nil {
+		return fmt.Errorf("webview2.New returned nil")
+	}
+	defer w.Destroy()
+
+	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
+		if startSession == nil {
+			return map[string]any{
+				"ok":      false,
+				"message": "Обработчик подключения не задан",
+			}
+		}
+
+		if err := startSession(clientID, password); err != nil {
+			return map[string]any{
+				"ok":      false,
+				"message": err.Error(),
+			}
+		}
+
+		return map[string]any{
+			"ok":      true,
+			"message": "Подключение запущено",
+		}
+	}); err != nil {
+		return err
+	}
+
+	if err := w.Bind("mainWindowMinimize", func() {
+		MinimizeMainWindow(w)
+	}); err != nil {
+		return err
+	}
+
+	if err := w.Bind("mainWindowClose", func() {
+		CloseMainWindow(w)
+	}); err != nil {
+		return err
+	}
+
+	if err := w.Bind("mainWindowDrag", func() {
+		DragMainWindow(w)
+	}); err != nil {
+		return err
+	}
+
+	uiURL, err := rdWebURL("")
+	if err != nil {
+		return err
+	}
+
+	w.SetTitle("POSRelayv")
+	w.SetSize(1042, 820, webview2.HintNone)
+	w.SetSize(636, 435, webview2.HintMin)
+	w.SetSize(1272, 870, webview2.HintMax)
+
+	if err := ApplyMainWindowChrome(w); err != nil {
+		return err
+	}
+
+	w.Navigate(uiURL)
+
+	w.Run()
+
+	return nil
+}
 
 func OpenRDWindow(sessionID string, send func(OutgoingSignal) error) error {
 	if sessionID == "" {

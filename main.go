@@ -1,7 +1,18 @@
 package main
 
-import "posrelayd-viewer/internal/app"
+import (
+	"fmt"
+
+	"posrelayd-viewer/internal/app"
+	"posrelayd-viewer/internal/gui"
+)
 
 func main() {
-	app.Run()
+	if app.HandleStartupOptions() {
+		return
+	}
+
+	if err := gui.OpenMainWindow(app.StartHiddenSession); err != nil {
+		fmt.Println(err)
+	}
 }

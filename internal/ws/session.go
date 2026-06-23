@@ -224,3 +224,8 @@ func StartKeepAlive(conn *websocket.Conn, interval time.Duration) func() {
 		})
 	}
 }
+
+func WaitSessionClosed(conn *websocket.Conn, sessionClosed chan struct{}) {
+	<-sessionClosed
+	conn.Close()
+}

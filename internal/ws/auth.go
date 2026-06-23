@@ -53,6 +53,46 @@ func AuthLoop(conn *websocket.Conn, reader *bufio.Reader, sessionID string) (str
 	}
 }
 
+func AuthWithCredentials(conn *websocket.Conn, sessionID string, clientID string, password string) (string, error) {
+	clientID = strings.TrimSpace(clientID)
+
+	if clientID == "" {
+		return "", fmt.Errorf("ID клиента не указан")
+	}
+
+	if password == "" {
+		return "", fmt.Errorf("Пароль не указан")
+	}
+
+	if err := conn.WriteJSON(Message{
+		Type:     "auth",
+		ID:       sessionID,
+		ClientID: clientID,
+		Password: password,
+	}); err != nil {
+		return "", err
+	}
+
+	var resp Message
+	if err := conn.ReadJSON(&resp); err != nil {
+		return "", err
+	}
+
+	if resp.Type == "auth_ok" {
+		if resp.ClientID != "" {
+			return resp.ClientID, nil
+		}
+
+		return clientID, nil
+	}
+
+	if resp.Error != "" {
+		return "", fmt.Errorf(resp.Error)
+	}
+
+	return "", fmt.Errorf("ошибка авторизации")
+}
+
 func AdminHello(conn *websocket.Conn, apiKey string) error {
 	if err := conn.WriteJSON(Message{
 		Type:   "admin_hello",
