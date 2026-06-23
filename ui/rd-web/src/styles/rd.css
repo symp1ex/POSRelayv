@@ -1,0 +1,51 @@
+:root {
+  --stream-ratio: 1.777777;
+}
+
+html,
+body {
+  overflow: hidden;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #d7d7d7;
+}
+
+.rd-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #202020 0, #111 45%, #050505 100%);
+}
+
+.rd-stage {
+  width: min(100vw, calc(100vh * var(--stream-ratio)));
+  height: min(100vh, calc(100vw / var(--stream-ratio)));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.rd-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  touch-action: none;
+}
+
+.rd-status {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
