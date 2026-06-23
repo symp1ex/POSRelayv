@@ -81,6 +81,24 @@ func OpenRDWindow(sessionID string, send func(OutgoingSignal) error) error {
 			return
 		}
 
+		if err := w.Bind("rdClipboardRead", func() string {
+			text, err := ClipboardReadText()
+			if err != nil {
+				return ""
+			}
+			return text
+		}); err != nil {
+			ready <- err
+			return
+		}
+
+		if err := w.Bind("rdClipboardWrite", func(text string) bool {
+			return ClipboardWriteText(text) == nil
+		}); err != nil {
+			ready <- err
+			return
+		}
+
 		windowsByID.Store(sessionID, win)
 
 		w.SetTitle("POSRelay RD " + sessionID)
@@ -260,11 +278,21 @@ func rdHTML(sessionID string) string {
   let lastSize = "";
 
   const sessionID = "` + safeSessionID + `";
-  const browserOrigin = crypto.randomUUID ? crypto.randomUUID() : ("browser-" + Math.random());
+  const browserCrypto = globalThis.crypto || null;
+const browserOrigin =
+  browserCrypto && typeof browserCrypto.randomUUID === "function"
+    ? browserCrypto.randomUUID()
+    : ("browser-" + Math.random().toString(16).slice(2) + "-" + Date.now());
+  const MAX_CLIPBOARD_TEXT_BYTES = 60 * 1024;
+
   let msgSeq = 0;
   let clipboardSeq = 0;
   let lastClipboardRevision = "";
+  let queuedRemoteClipboard = null;
+
   let rdFocused = false;
+  let rdWindowActive = !document.hidden && document.hasFocus();
+
   const pressedKeys = new Set();
 
   function setStatus(text) {
@@ -275,16 +303,59 @@ func rdHTML(sessionID string) string {
     return Date.now();
   }
 
-  async function sha256Text(text) {
-    const data = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest("SHA-256", data);
+async function sha256Text(text) {
+  const input = String(text ?? "");
+  const data = new TextEncoder().encode(input);
+
+  if (
+    browserCrypto &&
+    browserCrypto.subtle &&
+    typeof browserCrypto.subtle.digest === "function"
+  ) {
+    const digest = await browserCrypto.subtle.digest("SHA-256", data);
+
     return "sha256:" + Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
 
+  // Fallback для WebView2 через SetHtml(), где crypto.subtle может быть недоступен.
+  // Это НЕ криптографический SHA-256, но достаточно для локальной дедупликации viewer.
+  // Agent всё равно умеет сам вычислять Revision(text), если revision пустой.
+  let h = 2166136261;
+
+  for (let i = 0; i < data.length; i++) {
+    h ^= data[i];
+    h = Math.imul(h, 16777619);
+  }
+
+  return "local-fnv1a:" + data.length + ":" + (h >>> 0).toString(16).padStart(8, "0");
+}
+
+  function utf8Bytes(text) {
+    return new TextEncoder().encode(String(text ?? "")).length;
+  }
+
+  function normalizeClipboardText(text) {
+    const safe = String(text ?? "").replace(/\u0000/g, "");
+    const size = utf8Bytes(safe);
+
+    if (size > MAX_CLIPBOARD_TEXT_BYTES) {
+      throw new Error("clipboard payload too large: " + size + " bytes");
+    }
+
+    return safe;
+  }
+
   function sendControl(msg) {
-    if (!control || control.readyState !== "open") return false;
+    if (!control || control.readyState !== "open") {
+      return false;
+    }
+
+    if (control.bufferedAmount > 256 * 1024) {
+      setStatus("control backpressure: " + control.bufferedAmount);
+      return false;
+    }
 
     control.send(JSON.stringify({
       id: String(++msgSeq),
@@ -297,7 +368,9 @@ func rdHTML(sessionID string) string {
   }
 
   function setRDFocus(focused) {
-    if (rdFocused === focused) return;
+    if (rdFocused === focused) {
+      return;
+    }
 
     rdFocused = focused;
     sendControl({ type: "focus_changed", focused });
@@ -320,14 +393,19 @@ func rdHTML(sessionID string) string {
         repeat: false,
       });
     }
+
     pressedKeys.clear();
   }
 
   function reportVideoSize() {
-    if (!video.videoWidth || !video.videoHeight) return;
+    if (!video.videoWidth || !video.videoHeight) {
+      return;
+    }
 
     const key = video.videoWidth + "x" + video.videoHeight;
-    if (key === lastSize) return;
+    if (key === lastSize) {
+      return;
+    }
 
     lastSize = key;
 
@@ -352,6 +430,7 @@ func rdHTML(sessionID string) string {
     if (boxRatio > videoRatio) {
       const contentWidth = rect.height * videoRatio;
       const x = rect.left + (rect.width - contentWidth) / 2;
+
       return {
         left: x,
         top: rect.top,
@@ -364,6 +443,7 @@ func rdHTML(sessionID string) string {
 
     const contentHeight = rect.width / videoRatio;
     const y = rect.top + (rect.height - contentHeight) / 2;
+
     return {
       left: rect.left,
       top: y,
@@ -393,11 +473,151 @@ func rdHTML(sessionID string) string {
 
   function buttonName(button) {
     switch (button) {
-      case 0: return "left";
-      case 1: return "middle";
-      case 2: return "right";
-      default: return "left";
+      case 0:
+        return "left";
+      case 1:
+        return "middle";
+      case 2:
+        return "right";
+      default:
+        return "left";
     }
+  }
+
+  async function readLocalClipboardText() {
+    if (window.rdClipboardRead) {
+      return await window.rdClipboardRead();
+    }
+
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      return await navigator.clipboard.readText();
+    }
+
+    return "";
+  }
+
+  async function writeLocalClipboardText(text) {
+    if (window.rdClipboardWrite) {
+      return await window.rdClipboardWrite(text);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+
+    return false;
+  }
+
+  async function readLocalClipboardSnapshot() {
+    const text = normalizeClipboardText(await readLocalClipboardText());
+    const revision = await sha256Text(text);
+
+    return { text, revision };
+  }
+
+  async function pushLocalClipboardToAgent(reason = "local-event") {
+    if (!control || control.readyState !== "open") {
+      return false;
+    }
+
+    const snap = await readLocalClipboardSnapshot();
+
+    if (snap.revision === lastClipboardRevision) {
+      return false;
+    }
+
+    lastClipboardRevision = snap.revision;
+
+return sendControl({
+  type: "clipboard_sync",
+  origin: browserOrigin,
+  seq: ++clipboardSeq,
+
+  // Важно:
+  // если WebView2 не дал crypto.subtle, snap.revision будет local-fnv1a.
+  // Agent ожидает sha256 и уже умеет сам вычислять Revision(text), когда revision пустой.
+  revision: snap.revision.startsWith("sha256:") ? snap.revision : "",
+
+  text: snap.text,
+  reason,
+});
+  }
+
+  async function applyClipboardFromAgent(msg) {
+    if (!msg || msg.origin === browserOrigin) {
+      return;
+    }
+
+    if (!("text" in msg)) {
+      return;
+    }
+
+    let text;
+    let revision;
+
+    try {
+      text = normalizeClipboardText(msg.text);
+      revision = msg.revision || await sha256Text(text);
+    } catch (err) {
+      setStatus("clipboard payload rejected: " + err.message);
+      return;
+    }
+
+    if (revision === lastClipboardRevision) {
+      return;
+    }
+
+    // Если это обычный браузер без native bridge, запись clipboard может требовать
+    // активного окна / user activation. В WebView2 основной путь — rdClipboardWrite.
+    if (!rdWindowActive && !window.rdClipboardWrite) {
+      queuedRemoteClipboard = { ...msg, text, revision };
+      return;
+    }
+
+    try {
+      const ok = await writeLocalClipboardText(text);
+
+      if (!ok) {
+        queuedRemoteClipboard = { ...msg, text, revision };
+        setStatus("clipboard write unavailable");
+        return;
+      }
+
+      lastClipboardRevision = revision;
+    } catch (err) {
+      queuedRemoteClipboard = { ...msg, text, revision };
+      setStatus("clipboard write failed: " + err.message);
+    }
+  }
+
+  function scheduleLocalClipboardSync(reason) {
+    // copy/cut меняют системный clipboard default action-ом браузера/ОС.
+    // Поэтому читаем не прямо внутри события, а чуть позже.
+    setTimeout(() => {
+      void pushLocalClipboardToAgent(reason).catch((err) => {
+        setStatus("clipboard sync failed: " + err.message);
+      });
+    }, 25);
+  }
+
+  function onRDWindowActivated() {
+    rdWindowActive = true;
+
+    if (queuedRemoteClipboard) {
+      const msg = queuedRemoteClipboard;
+      queuedRemoteClipboard = null;
+      void applyClipboardFromAgent(msg);
+    }
+
+    if (control && control.readyState === "open") {
+      void pushLocalClipboardToAgent("window-activated").catch(() => {});
+    }
+  }
+
+  function onRDWindowDeactivated() {
+    rdWindowActive = false;
+    setRDFocus(false);
   }
 
   video.addEventListener("pointerenter", () => {
@@ -410,7 +630,9 @@ func rdHTML(sessionID string) string {
 
   video.addEventListener("pointerdown", (event) => {
     const p = normalizedPoint(event);
-    if (!p.inside) return;
+    if (!p.inside) {
+      return;
+    }
 
     video.setPointerCapture?.(event.pointerId);
     setRDFocus(true);
@@ -427,6 +649,7 @@ func rdHTML(sessionID string) string {
 
   video.addEventListener("pointerup", (event) => {
     const p = normalizedPoint(event);
+
     event.preventDefault();
 
     sendControl({
@@ -438,10 +661,14 @@ func rdHTML(sessionID string) string {
   });
 
   video.addEventListener("pointermove", (event) => {
-    if (!rdFocused) return;
+    if (!rdFocused) {
+      return;
+    }
 
     const p = normalizedPoint(event);
-    if (!p.inside) return;
+    if (!p.inside) {
+      return;
+    }
 
     event.preventDefault();
 
@@ -453,10 +680,14 @@ func rdHTML(sessionID string) string {
   });
 
   video.addEventListener("wheel", (event) => {
-    if (!rdFocused) return;
+    if (!rdFocused) {
+      return;
+    }
 
     const p = normalizedPoint(event);
-    if (!p.inside) return;
+    if (!p.inside) {
+      return;
+    }
 
     event.preventDefault();
 
@@ -470,11 +701,25 @@ func rdHTML(sessionID string) string {
   }, { passive: false });
 
   window.addEventListener("keydown", async (event) => {
-    if (!rdFocused) return;
+    if (!rdFocused) {
+      return;
+    }
 
     event.preventDefault();
 
-    if (event.repeat) return;
+    if (event.repeat) {
+      return;
+    }
+
+    // Важно: перед удалённым Ctrl+V сначала отправляем локальный clipboard в agent.
+    // Иначе удалённое приложение может вставить старое содержимое буфера.
+    if ((event.ctrlKey || event.metaKey) && event.code === "KeyV") {
+      try {
+        await pushLocalClipboardToAgent("paste-shortcut");
+      } catch (err) {
+        setStatus("clipboard sync before paste failed: " + err.message);
+      }
+    }
 
     pressedKeys.add(event.code);
 
@@ -486,22 +731,19 @@ func rdHTML(sessionID string) string {
       shift: event.shiftKey,
       alt: event.altKey,
       meta: event.metaKey,
-      repeat: event.repeat,
+      repeat: false,
     });
-
-    if (event.ctrlKey && event.code === "KeyV") {
-      await syncBrowserClipboardToAgent();
-    }
-
-    if (event.ctrlKey && event.code === "KeyC") {
-      sendControl({ type: "clipboard_get" });
-    }
   });
 
   window.addEventListener("keyup", (event) => {
-    if (!rdFocused && !pressedKeys.has(event.code)) return;
+    const wasPressed = pressedKeys.has(event.code);
+
+    if (!rdFocused && !wasPressed) {
+      return;
+    }
 
     event.preventDefault();
+
     pressedKeys.delete(event.code);
 
     sendControl({
@@ -516,81 +758,53 @@ func rdHTML(sessionID string) string {
     });
   });
 
+  window.addEventListener("copy", () => {
+    scheduleLocalClipboardSync("copy");
+  });
+
+  window.addEventListener("cut", () => {
+    scheduleLocalClipboardSync("cut");
+  });
+
+  window.addEventListener("paste", () => {
+    scheduleLocalClipboardSync("paste");
+  });
+
+  if (navigator.clipboard && typeof navigator.clipboard.addEventListener === "function") {
+    navigator.clipboard.addEventListener("clipboardchange", () => {
+      if (!rdWindowActive) {
+        return;
+      }
+
+      void pushLocalClipboardToAgent("clipboardchange").catch(() => {});
+    });
+  }
+
+  window.addEventListener("focus", () => {
+    onRDWindowActivated();
+  });
+
   window.addEventListener("blur", () => {
-    setRDFocus(false);
+    onRDWindowDeactivated();
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      setRDFocus(false);
+      onRDWindowDeactivated();
+      return;
+    }
+
+    if (document.hasFocus()) {
+      onRDWindowActivated();
     }
   });
-
-  document.addEventListener("copy", async () => {
-    sendControl({ type: "clipboard_get" });
-  });
-
-  document.addEventListener("paste", async () => {
-    await syncBrowserClipboardToAgent();
-  });
-
-  async function syncBrowserClipboardToAgent() {
-    if (!navigator.clipboard || !navigator.clipboard.readText) {
-      return;
-    }
-
-    try {
-      const text = await navigator.clipboard.readText();
-      const revision = await sha256Text(text);
-
-      if (revision === lastClipboardRevision) {
-        return;
-      }
-
-      lastClipboardRevision = revision;
-
-      sendControl({
-        type: "clipboard_sync",
-        origin: browserOrigin,
-        seq: ++clipboardSeq,
-        revision,
-        text,
-      });
-    } catch (err) {
-      setStatus("clipboard read blocked: " + err.message);
-    }
-  }
-
-  async function applyClipboardFromAgent(msg) {
-    if (msg.origin === browserOrigin) {
-      return;
-    }
-
-    if (!msg.text && msg.text !== "") {
-      return;
-    }
-
-    const revision = msg.revision || await sha256Text(msg.text);
-    if (revision === lastClipboardRevision) {
-      return;
-    }
-
-    lastClipboardRevision = revision;
-
-    if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(msg.text);
-    } catch (err) {
-      setStatus("clipboard write blocked: " + err.message);
-    }
-  }
 
   window.__RD_ON_SIGNAL = async function(raw) {
     const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!pc) return;
+
+    if (!pc) {
+      return;
+    }
 
     if (msg.type === "rd_answer" && msg.sdp) {
       await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
@@ -600,6 +814,7 @@ func rdHTML(sessionID string) string {
 
     if (msg.type === "rd_ice" && msg.candidate) {
       await pc.addIceCandidate(msg.candidate);
+      return;
     }
   };
 
@@ -612,12 +827,28 @@ func rdHTML(sessionID string) string {
 
     control.onopen = () => {
       setStatus("control open");
-      sendControl({ type: "focus_changed", focused: false });
-      sendControl({ type: "clipboard_get" });
+
+      sendControl({
+        type: "focus_changed",
+        focused: false,
+      });
+
+      rdWindowActive = !document.hidden && document.hasFocus();
+
+      if (rdWindowActive) {
+        void pushLocalClipboardToAgent("control-open").catch(() => {});
+      }
+
+      // На старых agent-реализациях это оставляет совместимость:
+      // если watcher ещё не добавлен, agent хотя бы вернёт snapshot по запросу.
+      sendControl({
+        type: "clipboard_get",
+      });
     };
 
     control.onmessage = async (event) => {
       let msg;
+
       try {
         msg = JSON.parse(event.data);
       } catch (_) {
@@ -631,6 +862,12 @@ func rdHTML(sessionID string) string {
 
       if (msg.type === "clipboard_sync") {
         await applyClipboardFromAgent(msg);
+        return;
+      }
+
+      if (msg.type === "clipboard_error") {
+        setStatus("clipboard error: " + (msg.error || "unknown"));
+        return;
       }
     };
 
@@ -647,7 +884,9 @@ func rdHTML(sessionID string) string {
     pc.addTransceiver("video", { direction: "recvonly" });
 
     pc.onicecandidate = (event) => {
-      if (!event.candidate) return;
+      if (!event.candidate) {
+        return;
+      }
 
       window.rdSignalOut(JSON.stringify({
         type: "rd_ice",
@@ -689,19 +928,28 @@ func rdHTML(sessionID string) string {
     setStatus("offer sent");
   }
 
-  video.addEventListener("contextmenu", (event) => event.preventDefault());
+  video.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
+
   video.addEventListener("loadedmetadata", reportVideoSize);
+
   setInterval(reportVideoSize, 500);
 
   window.addEventListener("beforeunload", () => {
     releasePressedKeys();
 
     try {
-      sendControl({ type: "focus_changed", focused: false });
+      sendControl({
+        type: "focus_changed",
+        focused: false,
+      });
     } catch (_) {}
 
     try {
-      window.rdSignalOut(JSON.stringify({ type: "rd_stop" }));
+      window.rdSignalOut(JSON.stringify({
+        type: "rd_stop",
+      }));
     } catch (_) {}
 
     if (pc) {
