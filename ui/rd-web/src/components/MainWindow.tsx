@@ -1,4 +1,10 @@
 import { useEffect, useState } from "react";
+import phIcon from "../assets/ph-icon.png";
+import rdIcon from "../assets/rd-icon.png";
+import mainIcon from "../assets/main.png";
+import maintabIcon from "../assets/maintab.png";
+import watchIcon from "../assets/watch.png";
+import notebookIcon from "../assets/notebook.png";
 
 type RecentConnection = {
     id: string;
@@ -15,7 +21,7 @@ type ActiveTab = "recent" | "contacts";
 const recentConnections: RecentConnection[] = [
     {
         id: "office-pc-01",
-        name: "Офис — ПК 01",
+        name: "zgeswnlp",
         address: "192.168.1.10",
         system: "Windows 11 Pro",
         time: "Сегодня, 10:24",
@@ -24,7 +30,7 @@ const recentConnections: RecentConnection[] = [
     },
     {
         id: "ivan-laptop",
-        name: "Ноутбук Ивана",
+        name: "jhfArqHL",
         address: "192.168.1.25",
         system: "Windows 11 Home",
         time: "Вчера, 16:45",
@@ -33,30 +39,12 @@ const recentConnections: RecentConnection[] = [
     },
     {
         id: "accounting-server",
-        name: "Сервер бухгалтерии",
+        name: "LsKKhBZI",
         address: "192.168.1.50",
         system: "Windows Server 2019",
         time: "Вчера, 11:32",
         status: "away",
         device: "server",
-    },
-    {
-        id: "design-studio",
-        name: "Дизайн-студия",
-        address: "192.168.1.77",
-        system: "Windows 10 Pro",
-        time: "12.05.2024, 09:18",
-        status: "online",
-        device: "desktop",
-    },
-    {
-        id: "home-pc",
-        name: "Домашний ПК",
-        address: "192.168.1.88",
-        system: "Windows 11 Home",
-        time: "10.05.2024, 21:07",
-        status: "offline",
-        device: "laptop",
     },
 ];
 
@@ -80,6 +68,11 @@ const contacts: RecentConnection[] = [
         device: "server",
     },
 ];
+
+const currentSessionCredentials = {
+    id: "---",
+    password: "---",
+};
 
 function getDeviceIcon(device: RecentConnection["device"]) {
     if (device === "server") {
@@ -274,8 +267,10 @@ export default function MainWindow() {
                     }}
                 >
                     <div className="custom-titlebar__brand">
-                        <span className="custom-titlebar__logo">▣</span>
-                        <span>POSRelay RD</span>
+                        <span className="custom-titlebar__logo">
+                            <img src={mainIcon} alt="" className="main-icon ph-icon--title" />
+                        </span>
+                        <span>POSRelayv</span>
                     </div>
 
                     <div className="custom-titlebar__actions">
@@ -309,37 +304,45 @@ export default function MainWindow() {
                         onClick={() => animateAction("Раздел подключений")}
                     >
                         <span className="side-nav__marker" />
-                        <span className="side-nav__icon">▣</span>
+                        <span className="side-nav__icon">
+                            <img src={maintabIcon} alt="" className="ph-icon maintabIcon--side" />
+                        </span>
                     </button>
                 </aside>
                 <section className="window-card">
                     <section className="top-grid">
                         <div className="panel connection-panel">
-                            <label className="field-label" htmlFor="client-id">
-                                ID клиента
-                            </label>
+                            <div className="connection-panel__controls">
+                                <div className="input-row">
+                                    <span className="input-icon">♙</span>
+                                    <input
+                                        id="client-id"
+                                        value={clientId}
+                                        onChange={(event) => setClientId(event.target.value)}
+                                        placeholder="Введите ID клиента"
+                                        aria-label="ID клиента"
+                                    />
+                                </div>
 
-                            <div className="input-row">
-                                <span className="input-icon">♙</span>
-                                <input
-                                    id="client-id"
-                                    value={clientId}
-                                    onChange={(event) => setClientId(event.target.value)}
-                                    placeholder="Введите ID клиента"
-                                />
+                                <div className="connection-panel__actions">
+                                    <button
+                                        type="button"
+                                        className="primary-button primary-button--icon-only"
+                                        aria-label="Дополнительная кнопка"
+                                    >
+                                        <img src={phIcon} alt="" className="ph-icon ph-icon--button" />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="primary-button primary-button--icon-only"
+                                        aria-label="Подключиться"
+                                        onClick={openPasswordPopup}
+                                    >
+                                        <img src={rdIcon} alt="" className="ph-icon rd-icon--button" />
+                                    </button>
+                                </div>
                             </div>
-
-                            <button
-                                type="button"
-                                className="primary-button"
-                                onClick={openPasswordPopup}
-                            >
-                                Подключиться
-                            </button>
-                        </div>
-
-                        <div className="panel server-panel">
-                            <span className="field-label">Сервер</span>
 
                             <div className="server-select">
                                 <button
@@ -368,6 +371,20 @@ export default function MainWindow() {
                                 ) : null}
                             </div>
                         </div>
+
+                        <div className="panel credentials-panel" aria-label="Данные для подключения">
+                            <dl className="credentials-list">
+                                <div className="credentials-list__row">
+                                    <dt>ID:</dt>
+                                    <dd>{currentSessionCredentials.id}</dd>
+                                </div>
+
+                                <div className="credentials-list__row">
+                                    <dt>Pass:</dt>
+                                    <dd>{currentSessionCredentials.password}</dd>
+                                </div>
+                            </dl>
+                        </div>
                     </section>
 
                     <section className="content-panel">
@@ -383,7 +400,7 @@ export default function MainWindow() {
                                     animateAction("Последние подключения");
                                 }}
                             >
-                                Последние подключения
+                                <img src={watchIcon} alt="" className="ph-icon watchIcon--tab" />
                             </button>
 
                             <button
@@ -397,7 +414,7 @@ export default function MainWindow() {
                                     animateAction("Контакты");
                                 }}
                             >
-                                Контакты
+                                <img src={notebookIcon} alt="" className="ph-icon notebookIcon--tab" />
                             </button>
                         </div>
 
