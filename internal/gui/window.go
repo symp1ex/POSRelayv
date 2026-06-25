@@ -122,12 +122,19 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	w := webview2.New(true)
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		Debug:     false,
+		AutoFocus: false,
+		WindowOptions: webview2.WindowOptions{
+			Title:  "POSRelayv",
+			Width:  985,
+			Height: 760,
+			Center: false,
+		},
+	})
 	if w == nil {
-		return fmt.Errorf("webview2.New returned nil")
+		return fmt.Errorf("webview2.NewWithOptions returned nil")
 	}
-
-	HideWebViewWindow(w)
 
 	mainWindowMu.Lock()
 	mainWindow = w
@@ -144,23 +151,6 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	defer w.Destroy()
 	defer closeSessionJob()
 
-	var showOnce sync.Once
-
-	showMainWindow := func() {
-		showOnce.Do(func() {
-			w.Dispatch(func() {
-				ShowWebViewWindow(w)
-			})
-		})
-	}
-
-	if err := w.Bind("mainWindowReady", func() {
-		showMainWindow()
-	}); err != nil {
-		return err
-	}
-
-	// Bind startHiddenConsole (with RD)
 	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
 		if err := startConnectionProcess(clientID, password, true, false); err != nil {
 			return map[string]any{
@@ -177,7 +167,6 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		return err
 	}
 
-	// Bind startHiddenConsoleNoRD (without RD)
 	if err := w.Bind("startHiddenConsoleNoRD", func(clientID string, password string) map[string]any {
 		if err := startConnectionProcess(clientID, password, false, true); err != nil {
 			return map[string]any{
@@ -194,21 +183,18 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		return err
 	}
 
-	// Bind mainWindowMinimize
 	if err := w.Bind("mainWindowMinimize", func() {
 		MinimizeMainWindow(w)
 	}); err != nil {
 		return err
 	}
 
-	// Bind mainWindowClose
 	if err := w.Bind("mainWindowClose", func() {
 		CloseMainWindow(w)
 	}); err != nil {
 		return err
 	}
 
-	// Bind mainWindowDrag
 	if err := w.Bind("mainWindowDrag", func() {
 		DragMainWindow(w)
 	}); err != nil {
@@ -220,8 +206,6 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		return err
 	}
 
-	w.SetTitle("POSRelayv")
-	w.SetSize(980, 700, webview2.HintNone)
 	w.SetSize(500, 550, webview2.HintMin)
 	w.SetSize(1150, 1400, webview2.HintMax)
 
@@ -231,7 +215,6 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 
 	w.Navigate(uiURL)
 
-	time.AfterFunc(3*time.Second, showMainWindow)
 	w.Run()
 
 	return nil

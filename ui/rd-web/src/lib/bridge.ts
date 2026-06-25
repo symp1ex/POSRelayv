@@ -23,7 +23,6 @@ declare global {
     mainWindowMinimize?: () => void;
     mainWindowClose?: () => void;
     mainWindowDrag?: () => void;
-    mainWindowReady?: () => void;
 
     rdSignalOut: (raw: string) => void;
     rdWindowReady?: () => void;

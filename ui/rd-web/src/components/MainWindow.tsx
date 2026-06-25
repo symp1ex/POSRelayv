@@ -103,10 +103,6 @@ export default function MainWindow() {
     const visibleConnections = activeTab === "recent" ? recentConnections : contacts;
 
     useEffect(() => {
-        window.mainWindowReady?.();
-    }, []);
-
-    useEffect(() => {
         function preventBrowserZoomByWheel(event: WheelEvent) {
             if (!event.ctrlKey) {
                 return;
