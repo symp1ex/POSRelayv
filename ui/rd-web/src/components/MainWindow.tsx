@@ -328,18 +328,18 @@ export default function MainWindow() {
                                     <button
                                         type="button"
                                         className="primary-button primary-button--icon-only"
-                                        aria-label="Дополнительная кнопка"
+                                        aria-label="Подключиться"
+                                        onClick={openPasswordPopup}
                                     >
-                                        <img src={phIcon} alt="" className="ph-icon ph-icon--button" />
+                                        <img src={rdIcon} alt="" className="ph-icon rd-icon--button" />
                                     </button>
 
                                     <button
                                         type="button"
                                         className="primary-button primary-button--icon-only"
-                                        aria-label="Подключиться"
-                                        onClick={openPasswordPopup}
+                                        aria-label="Дополнительная кнопка"
                                     >
-                                        <img src={rdIcon} alt="" className="ph-icon rd-icon--button" />
+                                        <img src={phIcon} alt="" className="ph-icon ph-icon--button" />
                                     </button>
                                 </div>
                             </div>

@@ -86,9 +86,9 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	}
 
 	w.SetTitle("POSRelayv")
-	w.SetSize(1042, 820, webview2.HintNone)
-	w.SetSize(636, 435, webview2.HintMin)
-	w.SetSize(1272, 870, webview2.HintMax)
+	w.SetSize(980, 700, webview2.HintNone)
+	w.SetSize(500, 550, webview2.HintMin)
+	w.SetSize(1150, 1400, webview2.HintMax)
 
 	if err := ApplyMainWindowChrome(w); err != nil {
 		return err

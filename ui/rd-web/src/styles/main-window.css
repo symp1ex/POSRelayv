@@ -483,17 +483,16 @@
     justify-content: center;
 }
 
-.connection-panel__actions .primary-button--icon-only:first-child {
-    width: 80px; /* +10% от 58px */
-}
-
 .connection-panel__actions .primary-button--icon-only:last-child {
     width: 110px; /* +20% от 58px */
 }
 
-.server-select {
-    position: relative;
-    width: 100%;
+.connection-panel__actions .primary-button--icon-only:first-child {
+    width: 110px;
+}
+
+.connection-panel__actions .primary-button--icon-only:last-child {
+    width: 80px;
 }
 
 .server-select__button {
