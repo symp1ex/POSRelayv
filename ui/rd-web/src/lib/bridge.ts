@@ -19,6 +19,7 @@ export type StartHiddenConsoleResult = {
 declare global {
   interface Window {
     startHiddenConsole?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
+    startHiddenConsoleNoRD?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
     mainWindowMinimize?: () => void;
     mainWindowClose?: () => void;
     mainWindowDrag?: () => void;

@@ -52,6 +52,17 @@ func StartServerReader(
 ) {
 	go func() {
 		var rdViewer *RDViewer
+		var closeSessionOnce sync.Once
+
+		closeSessionByRDWindow := func(closedSessionID string) {
+			closeSessionOnce.Do(func() {
+				fmt.Printf("\n[RD] RD окно закрыто пользователем, завершаю сессию: session_id=%s\n",
+					closedSessionID)
+
+				_ = conn.Close()
+			})
+		}
+
 		defer close(sessionClosed)
 
 		for {
@@ -82,7 +93,13 @@ func StartServerReader(
 					continue
 				}
 
-				v, err := StartRDViewer(server, apiKey, readySessionID, clientID)
+				v, err := StartRDViewer(
+					server,
+					apiKey,
+					readySessionID,
+					clientID,
+					closeSessionByRDWindow,
+				)
 				if err != nil {
 					fmt.Printf("\n[RD] Не удалось запустить RD viewer: %v\n", err)
 					continue

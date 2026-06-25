@@ -97,6 +97,7 @@ export default function MainWindow() {
     const [selectedItemId, setSelectedItemId] = useState<string | null>(recentConnections[0]?.id ?? null);
     const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
     const [actionText, setActionText] = useState("Интерфейс готов");
+    const [connectionMode, setConnectionMode] = useState<"withRD" | "withoutRD">("withRD");
 
     const visibleConnections = activeTab === "recent" ? recentConnections : contacts;
 
@@ -200,50 +201,52 @@ export default function MainWindow() {
         animateAction(`Выбран сервер: ${serverName}`);
     }
 
-    function openPasswordPopup() {
+    function openPasswordPopup(mode: "withRD" | "withoutRD") {
         const trimmedClientId = clientId.trim();
-
+ 
         if (!trimmedClientId) {
             animateAction("Введите ID клиента");
             return;
         }
-
+ 
+        setConnectionMode(mode);
         setPassword("");
         setIsPasswordPopupOpen(true);
-        animateAction(`Введите пароль для ${trimmedClientId}`);
+        animateAction(`Введите пароль для ${mode === "withRD" ? "подключения с RD:" : "подключения без RD:"} ${trimmedClientId}`);
     }
 
     async function confirmPassword() {
         const trimmedClientId = clientId.trim();
-
+ 
         if (!trimmedClientId) {
             animateAction("Введите ID клиента");
             return;
         }
-
+ 
         if (!password) {
             animateAction("Введите пароль");
             return;
         }
-
-        if (!window.startHiddenConsole) {
-            animateAction("Bridge startHiddenConsole недоступен");
+ 
+        const startConnection = connectionMode === "withRD" ? window.startHiddenConsole : window.startHiddenConsoleNoRD;
+        if (!startConnection) {
+            animateAction(`Bridge ${connectionMode === "withRD" ? "startHiddenConsole" : "startHiddenConsoleNoRD"} недоступен`);
             return;
         }
 
         setIsConnecting(true);
-
+ 
         try {
-            const result = await window.startHiddenConsole(trimmedClientId, password);
+            const result = await startConnection(trimmedClientId, password);
 
             if (!result.ok) {
                 animateAction(result.message || "Не удалось запустить подключение");
                 return;
             }
-
+ 
             setIsPasswordPopupOpen(false);
             setPassword("");
-            animateAction("Консоль запущена скрыто");
+            animateAction(`Консоль запущена скрыто ${connectionMode === "withRD" ? "с RD" : "без RD"}`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             animateAction(`Ошибка запуска: ${message}`);
@@ -328,8 +331,8 @@ export default function MainWindow() {
                                     <button
                                         type="button"
                                         className="primary-button primary-button--icon-only"
-                                        aria-label="Подключиться"
-                                        onClick={openPasswordPopup}
+                                        aria-label="Подключиться с RD"
+                                        onClick={() => openPasswordPopup("withRD")}
                                     >
                                         <img src={rdIcon} alt="" className="ph-icon rd-icon--button" />
                                     </button>
@@ -337,7 +340,8 @@ export default function MainWindow() {
                                     <button
                                         type="button"
                                         className="primary-button primary-button--icon-only"
-                                        aria-label="Дополнительная кнопка"
+                                        aria-label="Подключиться без RD"
+                                        onClick={() => openPasswordPopup("withoutRD")}
                                     >
                                         <img src={phIcon} alt="" className="ph-icon ph-icon--button" />
                                     </button>

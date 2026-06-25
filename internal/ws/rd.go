@@ -15,11 +15,19 @@ type RDViewer struct {
 	sessionID string
 	clientID  string
 
+	onWindowClosed func(sessionID string)
+
 	closeOnce sync.Once
 	closed    chan struct{}
 }
 
-func StartRDViewer(server string, apiKey string, sessionID string, clientID string) (*RDViewer, error) {
+func StartRDViewer(
+	server string,
+	apiKey string,
+	sessionID string,
+	clientID string,
+	onWindowClosed func(sessionID string),
+) (*RDViewer, error) {
 	conn := ConnectWithRetry(server)
 
 	if err := AdminHello(conn, apiKey); err != nil {
@@ -41,10 +49,11 @@ func StartRDViewer(server string, apiKey string, sessionID string, clientID stri
 	}
 
 	v := &RDViewer{
-		conn:      conn,
-		sessionID: sessionID,
-		clientID:  clientID,
-		closed:    make(chan struct{}),
+		conn:           conn,
+		sessionID:      sessionID,
+		clientID:       clientID,
+		onWindowClosed: onWindowClosed,
+		closed:         make(chan struct{}),
 	}
 
 	go v.readLoop()
@@ -67,17 +76,21 @@ func (v *RDViewer) readLoop() {
 		case "rd_ready":
 			readySessionID := rdSessionID(msg, v.sessionID)
 
-			if err := gui.OpenRDWindow(readySessionID, func(out gui.OutgoingSignal) error {
-				return v.conn.WriteJSON(Message{
-					Type:      out.Type,
-					ID:        readySessionID,
-					SessionID: readySessionID,
-					ClientID:  v.clientID,
-					Target:    "agent",
-					SDP:       out.SDP,
-					Candidate: out.Candidate,
-				})
-			}); err != nil {
+			if err := gui.OpenRDWindow(
+				readySessionID,
+				func(out gui.OutgoingSignal) error {
+					return v.conn.WriteJSON(Message{
+						Type:      out.Type,
+						ID:        readySessionID,
+						SessionID: readySessionID,
+						ClientID:  v.clientID,
+						Target:    "agent",
+						SDP:       out.SDP,
+						Candidate: out.Candidate,
+					})
+				},
+				v.onWindowClosed,
+			); err != nil {
 				fmt.Printf("\n[RD] Не удалось открыть RD окно: %v\n", err)
 			}
 

@@ -105,7 +105,7 @@ func Run() {
 			continue
 		}
 
-		sessionID := "211f7d03-2271-4f77-a44a-e337c6805970"
+		sessionID := uuid.NewString()
 
 		stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
 
@@ -154,7 +154,7 @@ func Run() {
 	}
 }
 
-func StartHiddenSession(clientID string, password string) error {
+func RunConnectionSession(clientID string, password string, startRD bool, showConsole bool) error {
 	clientID = strings.TrimSpace(clientID)
 
 	if clientID == "" {
@@ -165,57 +165,67 @@ func StartHiddenSession(clientID string, password string) error {
 		return fmt.Errorf("Пароль не указан")
 	}
 
+	if showConsole {
+		if err := console.EnsureRuntimeConsole(); err != nil {
+			return err
+		}
+	}
+
 	loadedApp, err := LoadApp()
 	if err != nil {
 		return err
 	}
 
-	go func() {
-		for {
-			conn := ws.ConnectWithRetry(loadedApp.server)
+	if showConsole {
+		loadedApp.reader = bufio.NewReader(os.Stdin)
+	}
 
-			if err := ws.AdminHello(conn, loadedApp.apiKey); err != nil {
-				fmt.Println(err)
-				conn.Close()
+	for {
+		conn := ws.ConnectWithRetry(loadedApp.server)
 
-				fmt.Println("Повторная попытка через 10 секунд...")
-				time.Sleep(10 * time.Second)
+		if err := ws.AdminHello(conn, loadedApp.apiKey); err != nil {
+			fmt.Println(err)
+			conn.Close()
 
-				continue
-			}
+			fmt.Println("Повторная попытка через 10 секунд...")
+			time.Sleep(10 * time.Second)
 
-			hardwareID, err := getHardwareID()
-			if err != nil {
-				fmt.Println("Не удалось получить hardwareID:", err)
-				conn.Close()
-				time.Sleep(10 * time.Second)
-				continue
-			}
+			continue
+		}
 
-			sessionID := uuid.NewString()
+		hardwareID, err := getHardwareID()
+		if err != nil {
+			fmt.Println("Не удалось получить hardwareID:", err)
+			conn.Close()
+			time.Sleep(10 * time.Second)
+			continue
+		}
 
-			stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
+		sessionID := uuid.NewString()
 
-			authorizedClientID, err := ws.AuthWithCredentials(conn, sessionID, clientID, password)
-			if err != nil {
-				fmt.Println("Ошибка авторизации:", err)
-				conn.Close()
-				stopKeepAlive()
-				return
-			}
+		stopKeepAlive := ws.StartKeepAlive(conn, 25*time.Second)
 
-			if err := conn.WriteJSON(ws.Message{
-				Type:       "register",
-				Role:       "admin",
-				ID:         sessionID,
-				HardwareID: hardwareID,
-			}); err != nil {
-				fmt.Println("Не удалось отправить register:", err)
-				conn.Close()
-				stopKeepAlive()
-				continue
-			}
+		authorizedClientID, err := ws.AuthWithCredentials(conn, sessionID, clientID, password)
+		if err != nil {
+			fmt.Println("Ошибка авторизации:", err)
+			conn.Close()
+			stopKeepAlive()
+			return nil
+		}
 
+		if err := conn.WriteJSON(ws.Message{
+			Type:       "register",
+			Role:       "admin",
+			ID:         sessionID,
+			HardwareID: hardwareID,
+		}); err != nil {
+			fmt.Println("Не удалось отправить register:", err)
+			conn.Close()
+			stopKeepAlive()
+			continue
+		}
+
+		if startRD {
 			if err := conn.WriteJSON(ws.Message{
 				Type:      "rd_start",
 				ID:        sessionID,
@@ -228,23 +238,43 @@ func StartHiddenSession(clientID string, password string) error {
 				continue
 			}
 
-			fmt.Println("Скрытая сессия запущена")
+			fmt.Println("Скрытая сессия запущена с RD")
+		} else {
+			fmt.Println("Скрытая сессия запущена без RD")
+		}
 
-			sessionClosed := make(chan struct{})
+		sessionClosed := make(chan struct{})
 
-			ws.StartServerReader(
+		ws.StartServerReader(
+			conn,
+			sessionClosed,
+			sessionID,
+			authorizedClientID,
+			loadedApp.server,
+			loadedApp.apiKey,
+		)
+
+		if showConsole {
+			ws.RunSessionLoop(
 				conn,
+				loadedApp.reader,
 				sessionClosed,
-				sessionID,
 				authorizedClientID,
-				loadedApp.server,
-				loadedApp.apiKey,
+				sessionID,
 			)
-
+		} else {
 			ws.WaitSessionClosed(conn, sessionClosed)
+		}
 
-			stopKeepAlive()
-			return
+		stopKeepAlive()
+		return nil
+	}
+}
+
+func StartHiddenSession(clientID string, password string, startRD bool, showConsole bool) error {
+	go func() {
+		if err := RunConnectionSession(clientID, password, startRD, showConsole); err != nil {
+			fmt.Println("Ошибка сессии:", err)
 		}
 	}()
 

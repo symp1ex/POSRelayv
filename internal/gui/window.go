@@ -3,11 +3,13 @@ package gui
 import (
 	"encoding/json"
 	"fmt"
+	webview2 "github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
+	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"sync"
-
-	webview2 "github.com/jchv/go-webview2"
 )
 
 type OutgoingSignal struct {
@@ -21,13 +23,63 @@ type rdWebViewWindow struct {
 	w         webview2.WebView
 	done      chan struct{}
 	send      func(OutgoingSignal) error
+	onClose   func(sessionID string)
 }
 
-type StartSessionHandler func(clientID string, password string) error
+type StartSessionHandler func(clientID string, password string, startRD bool, showConsole bool) error
 
 var (
 	windowsByID sync.Map // sessionID -> *rdWebViewWindow
 )
+
+func startConnectionProcess(clientID string, password string, startRD bool, showConsole bool) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	startRDValue := "0"
+	if startRD {
+		startRDValue = "1"
+	}
+
+	showConsoleValue := "0"
+	if showConsole {
+		showConsoleValue = "1"
+	}
+
+	cmd := exec.Command(exePath, "-session")
+
+	cmd.Env = append(
+		os.Environ(),
+		"POSRELAY_CLIENT_ID="+clientID,
+		"POSRELAY_PASSWORD="+password,
+		"POSRELAY_START_RD="+startRDValue,
+		"POSRELAY_SHOW_CONSOLE="+showConsoleValue,
+	)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	processHandle, err := windows.OpenProcess(
+		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
+		false,
+		uint32(cmd.Process.Pid),
+	)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("OpenProcess failed: %w", err)
+	}
+	defer windows.CloseHandle(processHandle)
+
+	if err := addProcessToSessionJob(processHandle); err != nil {
+		_ = cmd.Process.Kill()
+		return err
+	}
+
+	return cmd.Process.Release()
+}
 
 func OpenMainWindow(startSession StartSessionHandler) error {
 	runtime.LockOSThread()
@@ -38,16 +90,11 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		return fmt.Errorf("webview2.New returned nil")
 	}
 	defer w.Destroy()
+	defer closeSessionJob()
 
+	// Bind startHiddenConsole (with RD)
 	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
-		if startSession == nil {
-			return map[string]any{
-				"ok":      false,
-				"message": "Обработчик подключения не задан",
-			}
-		}
-
-		if err := startSession(clientID, password); err != nil {
+		if err := startConnectionProcess(clientID, password, true, false); err != nil {
 			return map[string]any{
 				"ok":      false,
 				"message": err.Error(),
@@ -56,24 +103,44 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 
 		return map[string]any{
 			"ok":      true,
-			"message": "Подключение запущено",
+			"message": "Подключение с RD запущено",
 		}
 	}); err != nil {
 		return err
 	}
 
+	// Bind startHiddenConsoleNoRD (without RD)
+	if err := w.Bind("startHiddenConsoleNoRD", func(clientID string, password string) map[string]any {
+		if err := startConnectionProcess(clientID, password, false, true); err != nil {
+			return map[string]any{
+				"ok":      false,
+				"message": err.Error(),
+			}
+		}
+
+		return map[string]any{
+			"ok":      true,
+			"message": "Подключение без RD запущено",
+		}
+	}); err != nil {
+		return err
+	}
+
+	// Bind mainWindowMinimize
 	if err := w.Bind("mainWindowMinimize", func() {
 		MinimizeMainWindow(w)
 	}); err != nil {
 		return err
 	}
 
+	// Bind mainWindowClose
 	if err := w.Bind("mainWindowClose", func() {
 		CloseMainWindow(w)
 	}); err != nil {
 		return err
 	}
 
+	// Bind mainWindowDrag
 	if err := w.Bind("mainWindowDrag", func() {
 		DragMainWindow(w)
 	}); err != nil {
@@ -101,7 +168,11 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	return nil
 }
 
-func OpenRDWindow(sessionID string, send func(OutgoingSignal) error) error {
+func OpenRDWindow(
+	sessionID string,
+	send func(OutgoingSignal) error,
+	onClose func(sessionID string),
+) error {
 	if sessionID == "" {
 		sessionID = "rd-session"
 	}
@@ -124,6 +195,7 @@ func OpenRDWindow(sessionID string, send func(OutgoingSignal) error) error {
 			w:         w,
 			done:      make(chan struct{}),
 			send:      send,
+			onClose:   onClose,
 		}
 
 		if err := w.Bind("rdSignalOut", func(raw string) {
@@ -196,6 +268,10 @@ func OpenRDWindow(sessionID string, send func(OutgoingSignal) error) error {
 
 		windowsByID.Delete(sessionID)
 		close(win.done)
+
+		if win.onClose != nil {
+			go win.onClose(sessionID)
+		}
 	}()
 
 	return <-ready
@@ -243,7 +319,7 @@ func CloseRDWindow(sessionID string) {
 }
 
 func OpenVideoStub(sessionID string) error {
-	return OpenRDWindow(sessionID, nil)
+	return OpenRDWindow(sessionID, nil, nil)
 }
 
 func CloseVideoStub(sessionID string) {
