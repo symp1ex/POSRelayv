@@ -2,7 +2,10 @@ package app
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -72,10 +75,6 @@ func LoadApp() (*App, error) {
 }
 
 func Run() {
-	if HandleStartupOptions() {
-		return
-	}
-
 	app, err := LoadApp()
 	if err != nil {
 		fmt.Println(err)
@@ -143,15 +142,46 @@ func Run() {
 
 		sessionClosed := make(chan struct{})
 
-		ws.StartCtrlCHandler(conn, clientID, sessionID)
+		stopCtrlC := ws.StartCtrlCHandler(conn, clientID, sessionID)
 
-		ws.StartServerReader(conn, sessionClosed, sessionID, clientID, app.server, app.apiKey)
+		ws.StartServerReader(conn, sessionClosed, sessionID, clientID, app.server, app.apiKey, false)
 
 		ws.RunSessionLoop(conn, app.reader, sessionClosed, clientID, sessionID)
 
+		stopCtrlC()
 		stopKeepAlive()
 		continue
 	}
+}
+
+func sendMainUIPopup(message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+
+	eventURL := strings.TrimSpace(os.Getenv("POSRELAY_MAIN_UI_EVENT_URL"))
+	if eventURL == "" {
+		return
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"type":    "popup",
+		"message": message,
+	})
+	if err != nil {
+		return
+	}
+
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Post(eventURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
 }
 
 func RunConnectionSession(clientID string, password string, startRD bool, showConsole bool) error {
@@ -178,6 +208,12 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 
 	if showConsole {
 		loadedApp.reader = bufio.NewReader(os.Stdin)
+	}
+
+	var commandInput <-chan string
+
+	if showConsole && !startRD {
+		commandInput = ws.StartConsoleCommandReader(loadedApp.reader)
 	}
 
 	for {
@@ -207,7 +243,11 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 
 		authorizedClientID, err := ws.AuthWithCredentials(conn, sessionID, clientID, password)
 		if err != nil {
-			fmt.Println("Ошибка авторизации:", err)
+			message := fmt.Sprintf("Error: %v", err)
+
+			fmt.Println("Error:", err)
+			sendMainUIPopup(message)
+
 			conn.Close()
 			stopKeepAlive()
 			return nil
@@ -238,12 +278,20 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 				continue
 			}
 
-			fmt.Println("Скрытая сессия запущена с RD")
+			fmt.Println("RD session starting")
 		} else {
-			fmt.Println("Скрытая сессия запущена без RD")
+			fmt.Println("nonRD-session starting")
 		}
 
 		sessionClosed := make(chan struct{})
+
+		var stopCtrlC func()
+
+		if showConsole {
+			stopCtrlC = ws.StartCtrlCHandler(conn, authorizedClientID, sessionID)
+		}
+
+		autoReconnect := showConsole && !startRD
 
 		ws.StartServerReader(
 			conn,
@@ -252,21 +300,42 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 			authorizedClientID,
 			loadedApp.server,
 			loadedApp.apiKey,
+			autoReconnect,
 		)
 
 		if showConsole {
-			ws.RunSessionLoop(
-				conn,
-				loadedApp.reader,
-				sessionClosed,
-				authorizedClientID,
-				sessionID,
-			)
+			if startRD {
+				ws.RunSessionLoop(
+					conn,
+					loadedApp.reader,
+					sessionClosed,
+					authorizedClientID,
+					sessionID,
+				)
+			} else {
+				ws.RunSessionCommandLoop(
+					conn,
+					commandInput,
+					sessionClosed,
+					authorizedClientID,
+					sessionID,
+				)
+			}
 		} else {
 			ws.WaitSessionClosed(conn, sessionClosed)
 		}
 
+		if stopCtrlC != nil {
+			stopCtrlC()
+		}
+
 		stopKeepAlive()
+
+		if showConsole && !startRD {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
 		return nil
 	}
 }

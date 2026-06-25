@@ -6,31 +6,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"os"
-	"os/signal"
 	"posrelayd-viewer/internal/gui"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
-
-func StartCtrlCHandler(conn *websocket.Conn, clientID, sessionID string) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGINT)
-
-	go func() {
-		for range sigChan {
-			// НЕ завершаем админ
-			// Отправляем спец-команду клиенту
-			_ = conn.WriteJSON(Message{
-				Type:     "control",
-				ClientID: clientID,
-				ID:       sessionID,
-				Command:  "CTRL_C",
-			})
-		}
-	}()
-}
 
 func rdSessionID(msg Message, fallback string) string {
 	if msg.SessionID != "" {
@@ -49,6 +29,7 @@ func StartServerReader(
 	clientID string,
 	server string,
 	apiKey string,
+	autoReconnect bool,
 ) {
 	go func() {
 		var rdViewer *RDViewer
@@ -69,7 +50,13 @@ func StartServerReader(
 			var msg Message
 			if err := conn.ReadJSON(&msg); err != nil {
 				gui.CloseRDWindow(sessionID)
-				fmt.Println("\nСоединение разорвано, нажмите Enter для продолжения")
+
+				if autoReconnect {
+					fmt.Println("\nСоединение разорвано, переподключение...")
+				} else {
+					fmt.Println("\nСоединение разорвано, нажмите Enter для продолжения")
+				}
+
 				return
 			}
 
@@ -139,7 +126,13 @@ func StartServerReader(
 				}
 
 				gui.CloseRDWindow(sessionID)
-				fmt.Println("\nСессия клиента завершена, нажмите Enter для продолжения")
+
+				if autoReconnect {
+					fmt.Println("\nСессия клиента завершена, переподключение...")
+				} else {
+					fmt.Println("\nСессия клиента завершена, нажмите Enter для продолжения")
+				}
+
 				return
 			}
 		}

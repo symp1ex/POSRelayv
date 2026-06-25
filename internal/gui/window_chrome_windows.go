@@ -47,6 +47,8 @@ const (
 	wmClose         = 0x0010
 	wmNcLButtonDown = 0x00A1
 
+	swHide     = 0
+	swShow     = 5
 	swMinimize = 6
 
 	htClient      = 1
@@ -155,6 +157,24 @@ func CloseMainWindow(w webview2.WebView) {
 	}
 
 	_, _, _ = procPostMessage.Call(hwnd, wmClose, 0, 0)
+}
+
+func HideWebViewWindow(w webview2.WebView) {
+	hwnd := uintptr(w.Window())
+	if hwnd == 0 {
+		return
+	}
+
+	_, _, _ = procShowWindow.Call(hwnd, swHide)
+}
+
+func ShowWebViewWindow(w webview2.WebView) {
+	hwnd := uintptr(w.Window())
+	if hwnd == 0 {
+		return
+	}
+
+	_, _, _ = procShowWindow.Call(hwnd, swShow)
 }
 
 func DragMainWindow(w webview2.WebView) {

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"posrelayd-viewer/internal/config"
+	"posrelayd-viewer/internal/console"
 )
 
 type Flags struct {
 	Setup   bool
 	Session bool
+	Console bool
 }
 
 func ParseFlags() Flags {
@@ -17,6 +19,7 @@ func ParseFlags() Flags {
 
 	flag.BoolVar(&flags.Setup, "setup", false, "configure application")
 	flag.BoolVar(&flags.Session, "session", false, "start standalone connection session")
+	flag.BoolVar(&flags.Console, "console", false, "start in console mode without UI")
 
 	flag.Parse()
 	return flags
@@ -26,15 +29,6 @@ func HandleStartupOptions() bool {
 	flags := ParseFlags()
 
 	switch {
-	case flags.Setup:
-		if err := config.Setup(); err != nil {
-			fmt.Println("Ошибка настройки:", err)
-			os.Exit(1)
-		}
-
-		fmt.Println("Конфигурация успешно сохранена")
-		return true
-
 	case flags.Session:
 		clientID := os.Getenv("POSRELAY_CLIENT_ID")
 		password := os.Getenv("POSRELAY_PASSWORD")
@@ -47,7 +41,27 @@ func HandleStartupOptions() bool {
 		}
 
 		return true
-	}
 
+	case flags.Setup:
+		if err := console.EnsureRuntimeConsole(); err != nil {
+			os.Exit(1)
+		}
+
+		if err := config.Setup(); err != nil {
+			fmt.Println("Ошибка настройки:", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Конфигурация успешно сохранена")
+		return true
+
+	case flags.Console:
+		if err := console.EnsureRuntimeConsole(); err != nil {
+			os.Exit(1)
+		}
+
+		Run()
+		return true
+	}
 	return false
 }

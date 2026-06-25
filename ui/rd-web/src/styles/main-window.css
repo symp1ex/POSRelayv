@@ -14,7 +14,8 @@
 }
 
 .main-window {
-    --ui-scale: 0.73;
+    --ui-scale: 0.78;
+    --modal-scale: 0.9;
 
     width: 100vw;
     height: 100vh;
@@ -827,7 +828,7 @@
 
 .password-field label {
     color: var(--text-main);
-    font-size: 15px;
+    font-size: 17px;
 }
 
 .password-field input {
@@ -970,4 +971,35 @@
     .connection-item .icon-button:last-child {
         display: none;
     }
+}
+
+.message-modal {
+    width: min(460px, calc(100vw - 36px));
+    border: 1px solid rgba(87, 107, 130, 0.3);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(24, 34, 47, 0.98), rgba(13, 19, 28, 0.98));
+    box-shadow:
+            0 28px 80px rgba(0, 0, 0, 0.58),
+            inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    padding: 28px;
+    animation: modalIn 180ms ease both;
+}
+
+.message-modal h2 {
+    margin: 0 0 14px;
+    font-size: 21px;
+    font-weight: 600;
+}
+
+.message-modal p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 17px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.modal-scale {
+    transform: scale(var(--modal-scale));
+    transform-origin: center center;
 }

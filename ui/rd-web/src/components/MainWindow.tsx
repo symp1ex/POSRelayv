@@ -98,8 +98,13 @@ export default function MainWindow() {
     const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
     const [actionText, setActionText] = useState("Интерфейс готов");
     const [connectionMode, setConnectionMode] = useState<"withRD" | "withoutRD">("withRD");
+    const [popupMessage, setPopupMessage] = useState("");
 
     const visibleConnections = activeTab === "recent" ? recentConnections : contacts;
+
+    useEffect(() => {
+        window.mainWindowReady?.();
+    }, []);
 
     useEffect(() => {
         function preventBrowserZoomByWheel(event: WheelEvent) {
@@ -145,6 +150,25 @@ export default function MainWindow() {
             window.removeEventListener("keydown", preventBrowserZoomByKeyboard, {
                 capture: true,
             });
+        };
+    }, []);
+
+    useEffect(() => {
+        function onMainUIPopup(event: Event) {
+            const customEvent = event as CustomEvent<{ message?: string }>;
+            const message = customEvent.detail?.message?.trim();
+
+            if (!message) {
+                return;
+            }
+
+            setPopupMessage(message);
+        }
+
+        window.addEventListener("main-ui-popup", onMainUIPopup);
+
+        return () => {
+            window.removeEventListener("main-ui-popup", onMainUIPopup);
         };
     }, []);
 
@@ -493,58 +517,82 @@ export default function MainWindow() {
             </section>
             {isPasswordPopupOpen ? (
                 <div className="modal-backdrop" role="presentation">
-                    <section className="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
-                        <h2 id="password-modal-title">Введите пароль</h2>
+                    <div className="modal-scale">
+                        <section className="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+                            <h2 id="password-modal-title">Enter password</h2>
 
-                        <p>
-                            Подключение к клиенту <strong>{clientId.trim()}</strong>
-                        </p>
+                            <p>
+                                Connecting to a Client <strong>{clientId.trim()}</strong>
+                            </p>
 
-                        <div className="password-field">
-                            <label htmlFor="client-password">Пароль</label>
-                            <input
-                                id="client-password"
-                                type="password"
-                                value={password}
-                                autoFocus
-                                placeholder="Введите пароль"
-                                onChange={(event) => setPassword(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                        void confirmPassword();
-                                    }
+                            <div className="password-field">
+                                <label htmlFor="client-password">Password</label>
+                                <input
+                                    id="client-password"
+                                    type="password"
+                                    value={password}
+                                    autoFocus
+                                    placeholder="Enter password"
+                                    onChange={(event) => setPassword(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                            void confirmPassword();
+                                        }
 
-                                    if (event.key === "Escape") {
+                                        if (event.key === "Escape") {
+                                            setIsPasswordPopupOpen(false);
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            <div className="modal-actions">
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    disabled={isConnecting}
+                                    onClick={() => {
                                         setIsPasswordPopupOpen(false);
-                                    }
-                                }}
-                            />
-                        </div>
+                                        setPassword("");
+                                        animateAction("Connection canceled");
+                                    }}
+                                >
+                                    Cancel
+                                </button>
 
-                        <div className="modal-actions">
-                            <button
-                                type="button"
-                                className="secondary-button"
-                                disabled={isConnecting}
-                                onClick={() => {
-                                    setIsPasswordPopupOpen(false);
-                                    setPassword("");
-                                    animateAction("Подключение отменено");
-                                }}
-                            >
-                                Отмена
-                            </button>
+                                <button
+                                    type="button"
+                                    className="primary-button primary-button--modal"
+                                    disabled={isConnecting}
+                                    onClick={() => void confirmPassword()}
+                                >
+                                    {isConnecting ? "Launch..." : "Ok"}
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            ) : null}
 
-                            <button
-                                type="button"
-                                className="primary-button primary-button--modal"
-                                disabled={isConnecting}
-                                onClick={() => void confirmPassword()}
-                            >
-                                {isConnecting ? "Запуск..." : "Подтвердить"}
-                            </button>
-                        </div>
-                    </section>
+            {popupMessage ? (
+                <div className="modal-backdrop" role="presentation">
+                    <div className="modal-scale">
+                        <section className="message-modal" role="dialog" aria-modal="true" aria-labelledby="message-modal-title">
+                            <h2 id="message-modal-title">Response</h2>
+
+                            <p>{popupMessage}</p>
+
+                            <div className="modal-actions">
+                                <button
+                                    type="button"
+                                    className="primary-button primary-button--modal"
+                                    onClick={() => setPopupMessage("")}
+                                >
+                                    ОК
+                                </button>
+                            </div>
+                        </section>
+                    </div>
                 </div>
             ) : null}
         </main>

@@ -23,8 +23,10 @@ declare global {
     mainWindowMinimize?: () => void;
     mainWindowClose?: () => void;
     mainWindowDrag?: () => void;
+    mainWindowReady?: () => void;
 
     rdSignalOut: (raw: string) => void;
+    rdWindowReady?: () => void;
     rdVideoMeta?: (width: number, height: number) => void;
     rdClipboardRead?: () => string | Promise<string>;
     rdClipboardWrite?: (text: string) => boolean | Promise<boolean>;

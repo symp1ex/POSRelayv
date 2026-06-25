@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type OutgoingSignal struct {
@@ -30,6 +31,9 @@ type StartSessionHandler func(clientID string, password string, startRD bool, sh
 
 var (
 	windowsByID sync.Map // sessionID -> *rdWebViewWindow
+
+	mainWindowMu sync.Mutex
+	mainWindow   webview2.WebView
 )
 
 func startConnectionProcess(clientID string, password string, startRD bool, showConsole bool) error {
@@ -37,6 +41,13 @@ func startConnectionProcess(clientID string, password string, startRD bool, show
 	if err != nil {
 		return err
 	}
+
+	uiBaseURL, err := ensureRDWebServer()
+	if err != nil {
+		return err
+	}
+
+	mainUIEventURL := uiBaseURL + "api/main-ui-event"
 
 	startRDValue := "0"
 	if startRD {
@@ -56,6 +67,7 @@ func startConnectionProcess(clientID string, password string, startRD bool, show
 		"POSRELAY_PASSWORD="+password,
 		"POSRELAY_START_RD="+startRDValue,
 		"POSRELAY_SHOW_CONSOLE="+showConsoleValue,
+		"POSRELAY_MAIN_UI_EVENT_URL="+mainUIEventURL,
 	)
 
 	if err := cmd.Start(); err != nil {
@@ -81,6 +93,31 @@ func startConnectionProcess(clientID string, password string, startRD bool, show
 	return cmd.Process.Release()
 }
 
+func ShowMainWindowPopup(message string) {
+	mainWindowMu.Lock()
+	w := mainWindow
+	mainWindowMu.Unlock()
+
+	if w == nil || message == "" {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]string{
+		"message": message,
+	})
+	if err != nil {
+		return
+	}
+
+	w.Dispatch(func() {
+		js := fmt.Sprintf(
+			"window.dispatchEvent(new CustomEvent('main-ui-popup', { detail: %s }));",
+			string(payload),
+		)
+		w.Eval(js)
+	})
+}
+
 func OpenMainWindow(startSession StartSessionHandler) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -89,8 +126,39 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	if w == nil {
 		return fmt.Errorf("webview2.New returned nil")
 	}
+
+	HideWebViewWindow(w)
+
+	mainWindowMu.Lock()
+	mainWindow = w
+	mainWindowMu.Unlock()
+
+	defer func() {
+		mainWindowMu.Lock()
+		if mainWindow == w {
+			mainWindow = nil
+		}
+		mainWindowMu.Unlock()
+	}()
+
 	defer w.Destroy()
 	defer closeSessionJob()
+
+	var showOnce sync.Once
+
+	showMainWindow := func() {
+		showOnce.Do(func() {
+			w.Dispatch(func() {
+				ShowWebViewWindow(w)
+			})
+		})
+	}
+
+	if err := w.Bind("mainWindowReady", func() {
+		showMainWindow()
+	}); err != nil {
+		return err
+	}
 
 	// Bind startHiddenConsole (with RD)
 	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
@@ -163,6 +231,7 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 
 	w.Navigate(uiURL)
 
+	time.AfterFunc(3*time.Second, showMainWindow)
 	w.Run()
 
 	return nil
@@ -184,11 +253,23 @@ func OpenRDWindow(
 	ready := make(chan error, 1)
 
 	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		var readyOnce sync.Once
+
+		markReady := func(err error) {
+			readyOnce.Do(func() {
+				ready <- err
+			})
+		}
+
 		w := webview2.New(true)
 		if w == nil {
-			ready <- fmt.Errorf("webview2.New returned nil")
+			markReady(fmt.Errorf("webview2.New returned nil"))
 			return
 		}
+		defer w.Destroy()
 
 		win := &rdWebViewWindow{
 			sessionID: sessionID,
@@ -196,6 +277,13 @@ func OpenRDWindow(
 			done:      make(chan struct{}),
 			send:      send,
 			onClose:   onClose,
+		}
+
+		if err := w.Bind("rdWindowReady", func() {
+			markReady(nil)
+		}); err != nil {
+			markReady(err)
+			return
 		}
 
 		if err := w.Bind("rdSignalOut", func(raw string) {
@@ -261,10 +349,7 @@ func OpenRDWindow(
 		// Иначе большой bundle может отображаться как текст или ломаться на HTML parser edge cases.
 		w.Navigate(uiURL)
 
-		ready <- nil
-
 		w.Run()
-		w.Destroy()
 
 		windowsByID.Delete(sessionID)
 		close(win.done)
@@ -274,7 +359,14 @@ func OpenRDWindow(
 		}
 	}()
 
-	return <-ready
+	select {
+	case err := <-ready:
+		return err
+
+	case <-time.After(10 * time.Second):
+		CloseRDWindow(sessionID)
+		return fmt.Errorf("RD window did not become ready in time: session_id=%s", sessionID)
+	}
 }
 
 func PushRDSignal(sessionID string, msg any) error {
