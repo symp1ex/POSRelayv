@@ -1,7 +1,6 @@
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import MainWindow from "./components/MainWindow";
 import "./index.css";
-import "./styles/rd.css";
 import "./styles/main-window.css";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<MainWindow />);

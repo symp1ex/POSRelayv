@@ -15,6 +15,7 @@ ui/rd-web/tsconfig.*.tsbuildinfo
 internal/gui/web/dist/
 
 .idea/
+logs/
 *.json
 *.exe
 *.txt

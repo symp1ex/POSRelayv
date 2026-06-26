@@ -66,7 +66,7 @@ func save(cfg Config) error {
 func Setup() error {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Введите адрес сервера: ")
+	fmt.Print("Enter the server address: ")
 	url, err := reader.ReadString('\n')
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func Setup() error {
 
 	url = strings.TrimSpace(url)
 
-	fmt.Print("Введите API ключ: ")
+	fmt.Print("Enter the API-key: ")
 	apiKey, err := reader.ReadString('\n')
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func defaultConfig() Config {
 			APIKey: "-",
 		},
 		Logs: LogsConfig{
-			LogLevel:  "error",
+			LogLevel:  "warning",
 			StoreDays: 2,
 		},
 	}

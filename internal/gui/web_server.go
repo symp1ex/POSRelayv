@@ -38,7 +38,7 @@ func rdWebURL(sessionID string) (string, error) {
 		return base, nil
 	}
 
-	return base + "?session_id=" + url.QueryEscape(sessionID), nil
+	return base + "rd.html?session_id=" + url.QueryEscape(sessionID), nil
 }
 
 func ensureRDWebServer() (string, error) {
@@ -86,11 +86,6 @@ func (h *rdWebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cleanPath == "/" || cleanPath == "/index.html" {
-		h.serveIndex(w, r)
-		return
-	}
-
 	h.fileServer.ServeHTTP(w, r)
 }
 
@@ -124,36 +119,4 @@ func (h *rdWebHandler) handleMainUIEvent(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
-}
-
-func (h *rdWebHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
-	htmlBytes, err := fs.ReadFile(h.distFS, "index.html")
-	if err != nil {
-		http.Error(w, "React RD build is missing", http.StatusInternalServerError)
-		return
-	}
-
-	sessionID := r.URL.Query().Get("session_id")
-	htmlText := string(htmlBytes)
-
-	if sessionID != "" {
-		bootstrap, err := json.Marshal(map[string]string{
-			"sessionID": sessionID,
-		})
-		if err != nil {
-			http.Error(w, "Failed to prepare RD bootstrap", http.StatusInternalServerError)
-			return
-		}
-
-		bootstrapTag := `<script>window.__RD_BOOTSTRAP__ = ` + string(bootstrap) + `;</script>`
-
-		if strings.Contains(htmlText, "</head>") {
-			htmlText = strings.Replace(htmlText, "</head>", bootstrapTag+"\n</head>", 1)
-		} else {
-			htmlText = bootstrapTag + htmlText
-		}
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(htmlText))
 }

@@ -8,12 +8,12 @@ export default defineConfig({
         outDir: path.resolve(__dirname, "../../internal/gui/web/dist"),
         emptyOutDir: true,
         sourcemap: false,
-        cssCodeSplit: false,
+        cssCodeSplit: true,
         target: "es2022",
         rollupOptions: {
-            output: {
-                manualChunks: undefined,
-                inlineDynamicImports: true,
+            input: {
+                main: path.resolve(__dirname, "index.html"),
+                rd: path.resolve(__dirname, "rd.html"),
             },
         },
     },

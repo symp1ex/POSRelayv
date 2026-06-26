@@ -1,18 +1,26 @@
 package main
 
 import (
-	"fmt"
+	"log"
 
 	"posrelayd-viewer/internal/app"
 	"posrelayd-viewer/internal/gui"
+	"posrelayd-viewer/internal/logger"
 )
 
 func main() {
+	version := "0.4.7.6"
+
+	logger.Posrelayv.Infof(
+		"POSRelayv.v%s starting...", version)
+
 	if app.HandleStartupOptions() {
 		return
 	}
 
 	if err := gui.OpenMainWindow(app.StartHiddenSession); err != nil {
-		fmt.Println(err)
+		logger.Posrelayv.Errorf(
+			"The main thread terminated with the error: \n%s", err)
+		log.Fatal(err)
 	}
 }
