@@ -3,14 +3,15 @@ package gui
 import (
 	"encoding/json"
 	"fmt"
-	webview2 "github.com/jchv/go-webview2"
-	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
+
+	webview2 "github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
 )
 
 type OutgoingSignal struct {
@@ -138,6 +139,10 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 
 	mainWindowMu.Lock()
 	mainWindow = w
+	// Set icon for taskbar after window creation
+	if err := setTaskbarIcon(w); err != nil {
+		fmt.Println("setTaskbarIcon error:", err)
+	}
 	mainWindowMu.Unlock()
 
 	defer func() {

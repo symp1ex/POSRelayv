@@ -1,0 +1,54 @@
+package gui
+
+import (
+	"fmt"
+	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+
+	webview2 "github.com/jchv/go-webview2"
+)
+
+const (
+	IMAGE_ICON      = 1
+	LR_LOADFROMFILE = 0x00000010
+	LR_DEFAULTSIZE  = 0x00000040
+	WM_SETICON      = 0x0080
+)
+
+// Global variables for accessing user32.dll functions.
+var (
+	user32        = windows.NewLazySystemDLL("user32.dll")
+	procLoadImage = user32.NewProc("LoadImageW")
+	// Note: procSendMessage is declared in window_chrome_windows.go and reused here.
+)
+
+func setTaskbarIcon(w webview2.WebView) error {
+	hwnd := uintptr(w.Window())
+	if hwnd == 0 {
+		return nil
+	}
+
+	iconPathPtr, err := syscall.UTF16PtrFromString(`ui\rd-web\src\assets\main.ico`)
+	if err != nil {
+		return fmt.Errorf("failed to convert icon path: %w", err)
+	}
+
+	hIcon, _, _ := procLoadImage.Call(
+		0,
+		uintptr(unsafe.Pointer(iconPathPtr)),
+		IMAGE_ICON,
+		0, 0,
+		LR_LOADFROMFILE|LR_DEFAULTSIZE,
+	)
+	if hIcon == 0 {
+		return fmt.Errorf("LoadImage failed")
+	}
+
+	_, _, err = procSendMessage.Call(hwnd, WM_SETICON, uintptr(1), hIcon)
+	if err != nil {
+		return fmt.Errorf("SendMessage failed: %w", err)
+	}
+	return nil
+}
