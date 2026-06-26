@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"posrelayd-viewer/internal/logger"
 	"runtime"
 	"strconv"
 	"sync"
@@ -38,8 +39,11 @@ var (
 )
 
 func startConnectionProcess(clientID string, password string, startRD bool, showConsole bool) error {
+	logger.Posrelayv.Infof("[GUI] Starting connection process: client_id=%s start_rd=%t show_console=%t", clientID, startRD, showConsole)
+
 	exePath, err := os.Executable()
 	if err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to resolve executable path: %v", err)
 		return err
 	}
 
@@ -72,8 +76,11 @@ func startConnectionProcess(clientID string, password string, startRD bool, show
 	)
 
 	if err := cmd.Start(); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to start connection process: %v", err)
 		return err
 	}
+
+	logger.Posrelayv.Debugf("[GUI] Connection process started: pid=%d", cmd.Process.Pid)
 
 	processHandle, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
@@ -82,16 +89,24 @@ func startConnectionProcess(clientID string, password string, startRD bool, show
 	)
 	if err != nil {
 		_ = cmd.Process.Kill()
+		logger.Posrelayv.Errorf("[GUI] Failed to open connection process handle: pid=%d error=%v", cmd.Process.Pid, err)
 		return fmt.Errorf("OpenProcess failed: %w", err)
 	}
 	defer windows.CloseHandle(processHandle)
 
 	if err := addProcessToSessionJob(processHandle); err != nil {
 		_ = cmd.Process.Kill()
+		logger.Posrelayv.Errorf("[GUI] Failed to attach connection process to session job: pid=%d error=%v", cmd.Process.Pid, err)
 		return err
 	}
 
-	return cmd.Process.Release()
+	if err := cmd.Process.Release(); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to release connection process handle: pid=%d error=%v", cmd.Process.Pid, err)
+		return err
+	}
+
+	logger.Posrelayv.Infof("[GUI] Connection process is running: pid=%d", cmd.Process.Pid)
+	return nil
 }
 
 func ShowMainWindowPopup(message string) {
@@ -100,6 +115,7 @@ func ShowMainWindowPopup(message string) {
 	mainWindowMu.Unlock()
 
 	if w == nil || message == "" {
+		logger.Posrelayv.Debug("[GUI] Main window popup skipped because window or message is empty")
 		return
 	}
 
@@ -107,9 +123,11 @@ func ShowMainWindowPopup(message string) {
 		"message": message,
 	})
 	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to marshal main window popup payload: %v", err)
 		return
 	}
 
+	logger.Posrelayv.Debugf("[GUI] Dispatching main window popup: length=%d", len(message))
 	w.Dispatch(func() {
 		js := fmt.Sprintf(
 			"window.dispatchEvent(new CustomEvent('main-ui-popup', { detail: %s }));",
@@ -119,10 +137,14 @@ func ShowMainWindowPopup(message string) {
 	})
 }
 
-func OpenMainWindow(startSession StartSessionHandler) error {
+func OpenMainWindow(startSession StartSessionHandler, version string) error {
+	logger.Posrelayv.Infof(
+		"POSRelayv.v%s starting...", version)
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	logger.Posrelayv.Debug("[GUI] Creating main WebView window")
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: false,
@@ -134,6 +156,7 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		},
 	})
 	if w == nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to create main WebView window")
 		return fmt.Errorf("webview2.NewWithOptions returned nil")
 	}
 
@@ -141,7 +164,7 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 	mainWindow = w
 	// Set icon for taskbar after window creation
 	if err := setTaskbarIcon(w); err != nil {
-		fmt.Println("setTaskbarIcon error:", err)
+		logger.Posrelayv.Warnf("[GUI] Taskbar icon setup failed: %v", err)
 	}
 	mainWindowMu.Unlock()
 
@@ -151,6 +174,7 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 			mainWindow = nil
 		}
 		mainWindowMu.Unlock()
+		logger.Posrelayv.Debug("[GUI] Main window reference cleared")
 	}()
 
 	defer w.Destroy()
@@ -158,6 +182,7 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 
 	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
 		if err := startConnectionProcess(clientID, password, true, false); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to start hidden console with RD: client_id=%s error=%v", clientID, err)
 			return map[string]any{
 				"ok":      false,
 				"message": err.Error(),
@@ -169,11 +194,13 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 			"message": "Подключение с RD запущено",
 		}
 	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind startHiddenConsole: %v", err)
 		return err
 	}
 
 	if err := w.Bind("startHiddenConsoleNoRD", func(clientID string, password string) map[string]any {
 		if err := startConnectionProcess(clientID, password, false, true); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to start hidden console without RD: client_id=%s error=%v", clientID, err)
 			return map[string]any{
 				"ok":      false,
 				"message": err.Error(),
@@ -185,24 +212,28 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 			"message": "Подключение без RD запущено",
 		}
 	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind startHiddenConsoleNoRD: %v", err)
 		return err
 	}
 
 	if err := w.Bind("mainWindowMinimize", func() {
 		MinimizeMainWindow(w)
 	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind mainWindowMinimize: %v", err)
 		return err
 	}
 
 	if err := w.Bind("mainWindowClose", func() {
 		CloseMainWindow(w)
 	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind mainWindowClose: %v", err)
 		return err
 	}
 
 	if err := w.Bind("mainWindowDrag", func() {
 		DragMainWindow(w)
 	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind mainWindowDrag: %v", err)
 		return err
 	}
 
@@ -218,9 +249,12 @@ func OpenMainWindow(startSession StartSessionHandler) error {
 		return err
 	}
 
+	logger.Posrelayv.Infof("[GUI] Navigating main window: url=%s", uiURL)
 	w.Navigate(uiURL)
 
+	logger.Posrelayv.Debug("[GUI] Running main window event loop")
 	w.Run()
+	logger.Posrelayv.Debug("[GUI] Main window event loop stopped")
 
 	return nil
 }
@@ -235,8 +269,11 @@ func OpenRDWindow(
 	}
 
 	if _, ok := windowsByID.Load(sessionID); ok {
+		logger.Posrelayv.Debugf("[GUI] RD window is already open: session_id=%s", sessionID)
 		return nil
 	}
+
+	logger.Posrelayv.Infof("[GUI] Opening RD window: session_id=%s", sessionID)
 
 	ready := make(chan error, 1)
 
@@ -254,6 +291,7 @@ func OpenRDWindow(
 
 		w := webview2.New(true)
 		if w == nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to create RD WebView window: session_id=%s", sessionID)
 			markReady(fmt.Errorf("webview2.New returned nil"))
 			return
 		}
@@ -268,8 +306,10 @@ func OpenRDWindow(
 		}
 
 		if err := w.Bind("rdWindowReady", func() {
+			logger.Posrelayv.Debugf("[GUI] RD window reported ready: session_id=%s", sessionID)
 			markReady(nil)
 		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind rdWindowReady: session_id=%s error=%v", sessionID, err)
 			markReady(err)
 			return
 		}
@@ -277,28 +317,35 @@ func OpenRDWindow(
 		if err := w.Bind("rdSignalOut", func(raw string) {
 			var in OutgoingSignal
 			if err := json.Unmarshal([]byte(raw), &in); err != nil {
+				logger.Posrelayv.Warnf("[GUI] Failed to parse outgoing RD signal: session_id=%s error=%v", sessionID, err)
 				return
 			}
 
 			if win.send != nil {
-				_ = win.send(in)
+				if err := win.send(in); err != nil {
+					logger.Posrelayv.Warnf("[GUI] Failed to send outgoing RD signal: session_id=%s type=%s error=%v", sessionID, in.Type, err)
+				}
 			}
 		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind rdSignalOut: session_id=%s error=%v", sessionID, err)
 			ready <- err
 			return
 		}
 
 		if err := w.Bind("rdVideoMeta", func(width, height int) {
 			if width <= 0 || height <= 0 {
+				logger.Posrelayv.Debugf("[GUI] Ignoring invalid RD video metadata: session_id=%s width=%d height=%d", sessionID, width, height)
 				return
 			}
 
 			fw, fh := fitWindow(width, height, 1600, 1000)
+			logger.Posrelayv.Debugf("[GUI] Resizing RD window from video metadata: session_id=%s source=%dx%d window=%dx%d", sessionID, width, height, fw, fh)
 
 			w.Dispatch(func() {
 				w.SetSize(fw, fh, webview2.HintNone)
 			})
 		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind rdVideoMeta: session_id=%s error=%v", sessionID, err)
 			ready <- err
 			return
 		}
@@ -306,17 +353,24 @@ func OpenRDWindow(
 		if err := w.Bind("rdClipboardRead", func() string {
 			text, err := ClipboardReadText()
 			if err != nil {
+				logger.Posrelayv.Warnf("[GUI] RD clipboard read failed: session_id=%s error=%v", sessionID, err)
 				return ""
 			}
 			return text
 		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind rdClipboardRead: session_id=%s error=%v", sessionID, err)
 			ready <- err
 			return
 		}
 
 		if err := w.Bind("rdClipboardWrite", func(text string) bool {
-			return ClipboardWriteText(text) == nil
+			if err := ClipboardWriteText(text); err != nil {
+				logger.Posrelayv.Warnf("[GUI] RD clipboard write failed: session_id=%s error=%v", sessionID, err)
+				return false
+			}
+			return true
 		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind rdClipboardWrite: session_id=%s error=%v", sessionID, err)
 			ready <- err
 			return
 		}
@@ -335,12 +389,14 @@ func OpenRDWindow(
 		// Важно:
 		// React/Vite UI больше не передаём через SetHtml/NavigateToString.
 		// Иначе большой bundle может отображаться как текст или ломаться на HTML parser edge cases.
+		logger.Posrelayv.Infof("[GUI] Navigating RD window: session_id=%s url=%s", sessionID, uiURL)
 		w.Navigate(uiURL)
 
 		w.Run()
 
 		windowsByID.Delete(sessionID)
 		close(win.done)
+		logger.Posrelayv.Infof("[GUI] RD window closed: session_id=%s", sessionID)
 
 		if win.onClose != nil {
 			go win.onClose(sessionID)
@@ -349,10 +405,14 @@ func OpenRDWindow(
 
 	select {
 	case err := <-ready:
+		if err != nil {
+			logger.Posrelayv.Errorf("[GUI] RD window failed to become ready: session_id=%s error=%v", sessionID, err)
+		}
 		return err
 
 	case <-time.After(10 * time.Second):
 		CloseRDWindow(sessionID)
+		logger.Posrelayv.Errorf("[GUI] RD window did not become ready in time: session_id=%s", sessionID)
 		return fmt.Errorf("RD window did not become ready in time: session_id=%s", sessionID)
 	}
 }
@@ -360,6 +420,7 @@ func OpenRDWindow(
 func PushRDSignal(sessionID string, msg any) error {
 	raw, ok := windowsByID.Load(sessionID)
 	if !ok {
+		logger.Posrelayv.Warnf("[GUI] Cannot push RD signal because window was not found: session_id=%s", sessionID)
 		return fmt.Errorf("window not found: %s", sessionID)
 	}
 
@@ -367,6 +428,7 @@ func PushRDSignal(sessionID string, msg any) error {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to marshal incoming RD signal: session_id=%s error=%v", sessionID, err)
 		return err
 	}
 
@@ -394,6 +456,7 @@ func CloseRDWindow(sessionID string) {
 	win := raw.(*rdWebViewWindow)
 
 	if win.w != nil {
+		logger.Posrelayv.Debugf("[GUI] Terminating RD window: session_id=%s", sessionID)
 		win.w.Terminate()
 	}
 }
@@ -426,7 +489,7 @@ func fitWindow(srcW, srcH, maxW, maxH int) (int, int) {
 
 	if h < 360 {
 		h = 360
-		w = h * srcH / srcW
+		w = h * srcW / srcH
 	}
 
 	return w, h

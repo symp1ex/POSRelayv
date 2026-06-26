@@ -11,6 +11,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"posrelayd-viewer/internal/logger"
 )
 
 var (
@@ -36,25 +38,31 @@ const (
 )
 
 func ClipboardReadText() (string, error) {
+	logger.Posrelayv.Debug("[GUI] Reading text from clipboard")
+
 	clipboardMu.Lock()
 	defer clipboardMu.Unlock()
 
 	if ret, _, _ := procIsClipboardFormatAvailableV.Call(viewerCFUnicodeText); ret == 0 {
+		logger.Posrelayv.Debug("[GUI] Clipboard does not contain Unicode text")
 		return "", nil
 	}
 
 	if err := openViewerClipboardWithRetry(); err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to open clipboard for read: %v", err)
 		return "", err
 	}
 	defer procCloseClipboardViewer.Call()
 
 	h, _, err := procGetClipboardDataViewer.Call(viewerCFUnicodeText)
 	if h == 0 {
+		logger.Posrelayv.Warnf("[GUI] Failed to get clipboard data: %v", err)
 		return "", fmt.Errorf("GetClipboardData failed: %w", err)
 	}
 
 	ptr, _, err := procGlobalLockViewer.Call(h)
 	if ptr == 0 {
+		logger.Posrelayv.Warnf("[GUI] Failed to lock clipboard data: %v", err)
 		return "", fmt.Errorf("GlobalLock failed: %w", err)
 	}
 	defer procGlobalUnlockViewer.Call(h)
@@ -68,24 +76,31 @@ func ClipboardReadText() (string, error) {
 		chars = append(chars, ch)
 	}
 
-	return strings.TrimRight(syscall.UTF16ToString(chars), "\x00"), nil
+	text := strings.TrimRight(syscall.UTF16ToString(chars), "\x00")
+	logger.Posrelayv.Debugf("[GUI] Clipboard text read: length=%d", len(text))
+	return text, nil
 }
 
 func ClipboardWriteText(text string) error {
+	logger.Posrelayv.Debugf("[GUI] Writing text to clipboard: length=%d", len(text))
+
 	clipboardMu.Lock()
 	defer clipboardMu.Unlock()
 
 	if err := openViewerClipboardWithRetry(); err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to open clipboard for write: %v", err)
 		return err
 	}
 	defer procCloseClipboardViewer.Call()
 
 	if ret, _, err := procEmptyClipboardViewer.Call(); ret == 0 {
+		logger.Posrelayv.Warnf("[GUI] Failed to empty clipboard: %v", err)
 		return fmt.Errorf("EmptyClipboard failed: %w", err)
 	}
 
 	utf16, err := syscall.UTF16FromString(text)
 	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to encode clipboard text as UTF-16: %v", err)
 		return err
 	}
 
@@ -93,12 +108,14 @@ func ClipboardWriteText(text string) error {
 
 	hMem, _, err := procGlobalAllocViewer.Call(viewerGMemMoveable, size)
 	if hMem == 0 {
+		logger.Posrelayv.Warnf("[GUI] Failed to allocate clipboard memory: size=%d error=%v", size, err)
 		return fmt.Errorf("GlobalAlloc failed: %w", err)
 	}
 
 	ptr, _, err := procGlobalLockViewer.Call(hMem)
 	if ptr == 0 {
 		procGlobalFreeViewer.Call(hMem)
+		logger.Posrelayv.Warnf("[GUI] Failed to lock allocated clipboard memory: %v", err)
 		return fmt.Errorf("GlobalLock failed: %w", err)
 	}
 
@@ -107,9 +124,11 @@ func ClipboardWriteText(text string) error {
 
 	if ret, _, err := procSetClipboardDataViewer.Call(viewerCFUnicodeText, hMem); ret == 0 {
 		procGlobalFreeViewer.Call(hMem)
+		logger.Posrelayv.Warnf("[GUI] Failed to set clipboard data: %v", err)
 		return fmt.Errorf("SetClipboardData failed: %w", err)
 	}
 
+	logger.Posrelayv.Debug("[GUI] Clipboard text written")
 	return nil
 }
 
@@ -118,6 +137,9 @@ func openViewerClipboardWithRetry() error {
 
 	for attempt := 0; attempt < 20; attempt++ {
 		if ret, _, err := procOpenClipboardViewer.Call(0); ret != 0 {
+			if attempt > 0 {
+				logger.Posrelayv.Debugf("[GUI] Clipboard opened after retry: attempt=%d", attempt+1)
+			}
 			return nil
 		} else {
 			lastErr = err
@@ -126,5 +148,6 @@ func openViewerClipboardWithRetry() error {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	logger.Posrelayv.Warnf("[GUI] Failed to open clipboard after retries: %v", lastErr)
 	return fmt.Errorf("OpenClipboard failed after retries: %w", lastErr)
 }

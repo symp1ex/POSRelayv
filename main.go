@@ -9,16 +9,13 @@ import (
 )
 
 func main() {
-	version := "0.4.7.6"
-
-	logger.Posrelayv.Infof(
-		"POSRelayv.v%s starting...", version)
+	version := "0.4.7.7"
 
 	if app.HandleStartupOptions() {
 		return
 	}
 
-	if err := gui.OpenMainWindow(app.StartHiddenSession); err != nil {
+	if err := gui.OpenMainWindow(app.StartHiddenSession, version); err != nil {
 		logger.Posrelayv.Errorf(
 			"The main thread terminated with the error: \n%s", err)
 		log.Fatal(err)

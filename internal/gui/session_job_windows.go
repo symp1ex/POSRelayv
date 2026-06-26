@@ -7,6 +7,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"posrelayd-viewer/internal/logger"
 )
 
 const (
@@ -51,8 +53,11 @@ func ensureSessionJob() error {
 		return nil
 	}
 
+	logger.Posrelayv.Debug("[GUI] Creating session job object")
+
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to create session job object: %v", err)
 		return fmt.Errorf("CreateJobObject failed: %w", err)
 	}
 
@@ -67,10 +72,12 @@ func ensureSessionJob() error {
 	)
 	if ret == 0 {
 		windows.CloseHandle(job)
+		logger.Posrelayv.Errorf("[GUI] Failed to configure session job object: %v", err)
 		return fmt.Errorf("SetInformationJobObject failed: %w", err)
 	}
 
 	sessionJob = job
+	logger.Posrelayv.Debug("[GUI] Session job object created")
 	return nil
 }
 
@@ -80,9 +87,11 @@ func addProcessToSessionJob(process windows.Handle) error {
 	}
 
 	if err := windows.AssignProcessToJobObject(sessionJob, process); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to assign process to session job: %v", err)
 		return fmt.Errorf("AssignProcessToJobObject failed: %w", err)
 	}
 
+	logger.Posrelayv.Debug("[GUI] Process assigned to session job")
 	return nil
 }
 
@@ -93,4 +102,5 @@ func closeSessionJob() {
 
 	windows.CloseHandle(sessionJob)
 	sessionJob = 0
+	logger.Posrelayv.Debug("[GUI] Session job object closed")
 }

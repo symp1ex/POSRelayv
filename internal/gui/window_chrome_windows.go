@@ -11,6 +11,8 @@ import (
 	"golang.org/x/sys/windows"
 
 	webview2 "github.com/jchv/go-webview2"
+
+	"posrelayd-viewer/internal/logger"
 )
 
 const (
@@ -108,8 +110,11 @@ func ApplyMainWindowChrome(w webview2.WebView) error {
 
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Errorf("[GUI] Main window chrome cannot be applied because hwnd is empty")
 		return fmt.Errorf("main window hwnd is empty")
 	}
+
+	logger.Posrelayv.Debug("[GUI] Applying main window chrome")
 
 	oldProc, _, _ := procGetWindowLongPtr.Call(hwnd, gwlpWndProc)
 	if oldProc != 0 {
@@ -138,48 +143,58 @@ func ApplyMainWindowChrome(w webview2.WebView) error {
 		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged,
 	)
 
+	logger.Posrelayv.Debug("[GUI] Main window chrome applied")
 	return nil
 }
 
 func MinimizeMainWindow(w webview2.WebView) {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] Main window minimize skipped because hwnd is empty")
 		return
 	}
 
+	logger.Posrelayv.Debug("[GUI] Minimizing main window")
 	_, _, _ = procShowWindow.Call(hwnd, swMinimize)
 }
 
 func CloseMainWindow(w webview2.WebView) {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] Main window close skipped because hwnd is empty")
 		return
 	}
 
+	logger.Posrelayv.Debug("[GUI] Posting main window close message")
 	_, _, _ = procPostMessage.Call(hwnd, wmClose, 0, 0)
 }
 
 func HideWebViewWindow(w webview2.WebView) {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] WebView hide skipped because hwnd is empty")
 		return
 	}
 
+	logger.Posrelayv.Debug("[GUI] Hiding WebView window")
 	_, _, _ = procShowWindow.Call(hwnd, swHide)
 }
 
 func ShowWebViewWindow(w webview2.WebView) {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] WebView show skipped because hwnd is empty")
 		return
 	}
 
+	logger.Posrelayv.Debug("[GUI] Showing WebView window")
 	_, _, _ = procShowWindow.Call(hwnd, swShow)
 }
 
 func DragMainWindow(w webview2.WebView) {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] Main window drag skipped because hwnd is empty")
 		return
 	}
 

@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 
 	webview2 "github.com/jchv/go-webview2"
+
+	"posrelayd-viewer/internal/logger"
 )
 
 const (
@@ -27,11 +29,13 @@ var (
 func setTaskbarIcon(w webview2.WebView) error {
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
+		logger.Posrelayv.Debug("[GUI] Taskbar icon was not set because window handle is empty")
 		return nil
 	}
 
 	iconPathPtr, err := syscall.UTF16PtrFromString(`ui\rd-web\src\assets\main.ico`)
 	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to convert taskbar icon path: %v", err)
 		return fmt.Errorf("failed to convert icon path: %w", err)
 	}
 
@@ -43,12 +47,16 @@ func setTaskbarIcon(w webview2.WebView) error {
 		LR_LOADFROMFILE|LR_DEFAULTSIZE,
 	)
 	if hIcon == 0 {
+		logger.Posrelayv.Warnf("[GUI] Failed to load taskbar icon")
 		return fmt.Errorf("LoadImage failed")
 	}
 
 	_, _, err = procSendMessage.Call(hwnd, WM_SETICON, uintptr(1), hIcon)
 	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to set taskbar icon: %v", err)
 		return fmt.Errorf("SendMessage failed: %w", err)
 	}
+
+	logger.Posrelayv.Debug("[GUI] Taskbar icon set")
 	return nil
 }
