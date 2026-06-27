@@ -11,8 +11,16 @@ export function useRDSession(sessionID: string) {
   const lastSizeRef = useRef("");
   const msgSeqRef = useRef(0);
   const clipboardSeqRef = useRef(0);
-  const lastClipboardRevisionRef = useRef("");
-  const queuedRemoteClipboardRef = useRef<Record<string, unknown> | null>(null);
+
+// Последний revision, записанный/прочитанный на стороне viewer.
+// Используем только для защиты от повторной записи в host clipboard,
+// но НЕ для отмены paste: при paste host clipboard всегда отправляется на remote.
+  const lastHostClipboardRevisionRef = useRef("");
+
+// Разрешаем принимать clipboard_sync от агента только как ответ
+// на пользовательский copy/cut внутри RD-окна.
+  const pendingRemoteClipboardPullRef = useRef(0);
+
   const rdFocusedRef = useRef(false);
   const rdWindowActiveRef = useRef(!document.hidden && document.hasFocus());
   const pressedKeysRef = useRef(new Set<string>());
@@ -289,20 +297,20 @@ export function useRDSession(sessionID: string) {
       return { text, revision };
     }
 
-    async function pushLocalClipboardToAgent(reason = "local-event") {
+    async function sendHostClipboardToRemoteForPaste(reason: string) {
       const control = controlRef.current;
       if (!control || control.readyState !== "open") {
         return false;
       }
 
       const snap = await readLocalClipboardSnapshot();
-      if (snap.revision === lastClipboardRevisionRef.current) {
-        return false;
-      }
 
-      lastClipboardRevisionRef.current = snap.revision;
+      // ВАЖНО: для paste не делаем early return по revision.
+      // Требование: при каждом paste в RD-окне буфер хоста должен быть отправлен на remote.
+      lastHostClipboardRevisionRef.current = snap.revision;
+
       return sendControl({
-        type: "clipboard_sync",
+        type: "clipboard_set",
         origin: browserOriginRef.current,
         seq: ++clipboardSeqRef.current,
         revision: snap.revision.startsWith("sha256:") ? snap.revision : "",
@@ -311,8 +319,53 @@ export function useRDSession(sessionID: string) {
       });
     }
 
-    async function applyClipboardFromAgent(msg: Record<string, unknown>) {
+    function requestRemoteClipboardToHost(reason: string) {
+      const control = controlRef.current;
+      if (!control || control.readyState !== "open") {
+        return false;
+      }
+
+      pendingRemoteClipboardPullRef.current += 1;
+
+      const sent = sendControl({
+        type: "clipboard_get",
+        reason,
+      });
+
+      if (!sent) {
+        pendingRemoteClipboardPullRef.current = Math.max(0, pendingRemoteClipboardPullRef.current - 1);
+      }
+
+      return sent;
+    }
+
+    function scheduleRemoteClipboardPull(reason: string) {
+      window.setTimeout(() => {
+        requestRemoteClipboardToHost(reason);
+      }, 80);
+    }
+
+    async function applyRemoteClipboardToHostAfterCopyCut(msg: Record<string, unknown>) {
       if (!msg || msg.origin === browserOriginRef.current) {
+        return;
+      }
+
+      const fromWatcher = isRemoteClipboardWatcherSync(msg);
+
+      // Есть два легитимных пути remote -> host:
+      // 1. Ответ на наш clipboard_get после Ctrl+C / Ctrl+X / browser copy/cut event.
+      // 2. Самостоятельное событие от agent ClipboardWatcher после copy/cut через remote context menu.
+      if (!fromWatcher) {
+        if (pendingRemoteClipboardPullRef.current <= 0) {
+          return;
+        }
+
+        pendingRemoteClipboardPullRef.current -= 1;
+      }
+
+      // Watcher-событие принимаем только когда RD реально активен в viewer.
+      // Это дополнительная защита на стороне viewer; основная проверка focus уже есть на agent.
+      if (fromWatcher && (!rdFocusedRef.current || !rdWindowActiveRef.current)) {
         return;
       }
 
@@ -332,53 +385,35 @@ export function useRDSession(sessionID: string) {
         return;
       }
 
-      if (revision === lastClipboardRevisionRef.current) {
-        return;
-      }
-
-      if (!rdWindowActiveRef.current && !window.rdClipboardWrite) {
-        queuedRemoteClipboardRef.current = { ...msg, text, revision };
+      if (revision === lastHostClipboardRevisionRef.current) {
         return;
       }
 
       try {
         const ok = await writeLocalClipboardText(text);
         if (!ok) {
-          queuedRemoteClipboardRef.current = { ...msg, text, revision };
-          setStatus("clipboard write unavailable");
+          setStatus("host clipboard write unavailable");
           return;
         }
 
-        lastClipboardRevisionRef.current = revision;
+        lastHostClipboardRevisionRef.current = revision;
+        setStatus(`clipboard pulled from remote: ${reasonFromMessage(msg)}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        queuedRemoteClipboardRef.current = { ...msg, text, revision };
-        setStatus(`clipboard write failed: ${message}`);
+        setStatus(`host clipboard write failed: ${message}`);
       }
     }
 
-    function scheduleLocalClipboardSync(reason: string) {
-      window.setTimeout(() => {
-        void pushLocalClipboardToAgent(reason).catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          setStatus(`clipboard sync failed: ${message}`);
-        });
-      }, 25);
+    function reasonFromMessage(msg: Record<string, unknown>) {
+      return typeof msg.reason === "string" ? msg.reason : "copy/cut";
+    }
+
+    function isRemoteClipboardWatcherSync(msg: Record<string, unknown>) {
+      return msg.reason === "remote-clipboard-update";
     }
 
     function onRDWindowActivated() {
       rdWindowActiveRef.current = true;
-
-      if (queuedRemoteClipboardRef.current) {
-        const queued = queuedRemoteClipboardRef.current;
-        queuedRemoteClipboardRef.current = null;
-        void applyClipboardFromAgent(queued);
-      }
-
-      const control = controlRef.current;
-      if (control && control.readyState === "open") {
-        void pushLocalClipboardToAgent("window-activated").catch(() => undefined);
-      }
     }
 
     function onRDWindowDeactivated() {
@@ -403,6 +438,13 @@ export function useRDSession(sessionID: string) {
       video.setPointerCapture?.(event.pointerId);
       setRDFocus(true);
       event.preventDefault();
+
+      if (event.button === 2) {
+        void sendHostClipboardToRemoteForPaste("remote-context-menu-open").catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`clipboard preload before context menu failed: ${message}`);
+        });
+      }
 
       sendControl({
         type: "mouse_down",
@@ -467,20 +509,27 @@ export function useRDSession(sessionID: string) {
       }
 
       event.preventDefault();
+
       if (event.repeat) {
         return;
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.code === "KeyV") {
+      const isClipboardShortcut = event.ctrlKey || event.metaKey;
+      const isPasteShortcut = isClipboardShortcut && event.code === "KeyV";
+      const isCopyShortcut = isClipboardShortcut && event.code === "KeyC";
+      const isCutShortcut = isClipboardShortcut && event.code === "KeyX";
+
+      if (isPasteShortcut) {
         try {
-          await pushLocalClipboardToAgent("paste-shortcut");
+          await sendHostClipboardToRemoteForPaste("paste-shortcut");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          setStatus(`clipboard sync before paste failed: ${message}`);
+          setStatus(`clipboard send before paste failed: ${message}`);
         }
       }
 
       pressedKeysRef.current.add(event.code);
+
       sendControl({
         type: "key_down",
         code: event.code,
@@ -491,6 +540,14 @@ export function useRDSession(sessionID: string) {
         meta: event.metaKey,
         repeat: false,
       });
+
+      if (isCopyShortcut) {
+        scheduleRemoteClipboardPull("copy-shortcut");
+      }
+
+      if (isCutShortcut) {
+        scheduleRemoteClipboardPull("cut-shortcut");
+      }
     };
 
     const onKeyUp = (event: KeyboardEvent) => {
@@ -513,9 +570,33 @@ export function useRDSession(sessionID: string) {
       });
     };
 
-    const onCopy = () => scheduleLocalClipboardSync("copy");
-    const onCut = () => scheduleLocalClipboardSync("cut");
-    const onPaste = () => scheduleLocalClipboardSync("paste");
+    const onCopy = () => {
+      if (!rdFocusedRef.current) {
+        return;
+      }
+
+      scheduleRemoteClipboardPull("copy-event");
+    };
+
+    const onCut = () => {
+      if (!rdFocusedRef.current) {
+        return;
+      }
+
+      scheduleRemoteClipboardPull("cut-event");
+    };
+
+    const onPaste = () => {
+      if (!rdFocusedRef.current) {
+        return;
+      }
+
+      void sendHostClipboardToRemoteForPaste("paste-event").catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setStatus(`clipboard send on paste failed: ${message}`);
+      });
+    };
+
     const onFocus = () => onRDWindowActivated();
     const onBlur = () => onRDWindowDeactivated();
     const onVisibilityChange = () => {
@@ -527,8 +608,18 @@ export function useRDSession(sessionID: string) {
         onRDWindowActivated();
       }
     };
+
     const onContextMenu = (event: Event) => {
       event.preventDefault();
+
+      if (!rdFocusedRef.current) {
+        return;
+      }
+
+      void sendHostClipboardToRemoteForPaste("remote-context-menu").catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setStatus(`clipboard preload on context menu failed: ${message}`);
+      });
     };
 
     const onBeforeUnload = () => {
@@ -543,14 +634,6 @@ export function useRDSession(sessionID: string) {
       } catch {
         // ignore
       }
-    };
-
-    const clipboardWithEvents = navigator.clipboard as Clipboard & EventTarget;
-    const onClipboardChange = () => {
-      if (!rdWindowActiveRef.current) {
-        return;
-      }
-      void pushLocalClipboardToAgent("clipboardchange").catch(() => undefined);
     };
 
     video.addEventListener("pointerenter", onPointerEnter);
@@ -571,10 +654,6 @@ export function useRDSession(sessionID: string) {
     window.addEventListener("blur", onBlur);
     window.addEventListener("beforeunload", onBeforeUnload);
     document.addEventListener("visibilitychange", onVisibilityChange);
-
-    if (typeof clipboardWithEvents?.addEventListener === "function") {
-      clipboardWithEvents.addEventListener("clipboardchange", onClipboardChange as EventListener);
-    }
 
     window.__RD_ON_SIGNAL = async (raw: string | RDIncomingSignal) => {
       const msg = typeof raw === "string" ? (JSON.parse(raw) as RDIncomingSignal) : raw;
@@ -629,12 +708,6 @@ export function useRDSession(sessionID: string) {
         setStatus("control open");
         sendControl({ type: "focus_changed", focused: false });
         rdWindowActiveRef.current = !document.hidden && document.hasFocus();
-
-        if (rdWindowActiveRef.current) {
-          void pushLocalClipboardToAgent("control-open").catch(() => undefined);
-        }
-
-        sendControl({ type: "clipboard_get" });
       };
 
       control.onmessage = async (event) => {
@@ -651,7 +724,7 @@ export function useRDSession(sessionID: string) {
         }
 
         if (msg.type === "clipboard_sync") {
-          await applyClipboardFromAgent(msg);
+          await applyRemoteClipboardToHostAfterCopyCut(msg);
           return;
         }
 
@@ -745,10 +818,6 @@ export function useRDSession(sessionID: string) {
         sendSignalOut({ type: "rd_stop" });
       } catch {
         // ignore
-      }
-
-      if (typeof clipboardWithEvents?.removeEventListener === "function") {
-        clipboardWithEvents.removeEventListener("clipboardchange", onClipboardChange as EventListener);
       }
 
       delete window.__RD_ON_SIGNAL;
