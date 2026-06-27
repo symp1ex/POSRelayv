@@ -145,8 +145,11 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 	defer runtime.UnlockOSThread()
 
 	logger.Posrelayv.Debug("[GUI] Creating main WebView window")
+
+	debugWebView := IsWebView2DebugEnabled()
+
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     false,
+		Debug:     debugWebView,
 		AutoFocus: false,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "POSRelayv",
@@ -249,7 +252,7 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 		return err
 	}
 
-	logger.Posrelayv.Infof("[GUI] Navigating main window: url=%s", uiURL)
+	logger.Posrelayv.Debug("[GUI] Navigating main window")
 	w.Navigate(uiURL)
 
 	logger.Posrelayv.Debug("[GUI] Running main window event loop")
@@ -289,7 +292,10 @@ func OpenRDWindow(
 			})
 		}
 
-		w := webview2.New(true)
+		debugWebView := IsWebView2DebugEnabled()
+
+		w := webview2.New(debugWebView)
+
 		if w == nil {
 			logger.Posrelayv.Errorf("[GUI] Failed to create RD WebView window: session_id=%s", sessionID)
 			markReady(fmt.Errorf("webview2.New returned nil"))

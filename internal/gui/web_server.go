@@ -72,7 +72,7 @@ func ensureRDWebServer() (string, error) {
 		}
 
 		rdWebServerBase = "http://" + listener.Addr().String() + "/"
-		logger.Posrelayv.Infof("[GUI] Local RD web server started: base_url=%s", rdWebServerBase)
+		logger.Posrelayv.Info("[GUI] Local RD web server started")
 
 		go func() {
 			if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
