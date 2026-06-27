@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -13,18 +14,63 @@ import (
 )
 
 const (
-	IMAGE_ICON      = 1
-	LR_LOADFROMFILE = 0x00000010
-	LR_DEFAULTSIZE  = 0x00000040
-	WM_SETICON      = 0x0080
+	WM_SETICON = 0x0080
+
+	ICON_SMALL = 0
+	ICON_BIG   = 1
+
+	SHGFI_ICON      = 0x000000100
+	SHGFI_LARGEICON = 0x000000000
+	SHGFI_SMALLICON = 0x000000001
 )
 
-// Global variables for accessing user32.dll functions.
+type shFileInfo struct {
+	HIcon         uintptr
+	IIcon         int32
+	DwAttributes  uint32
+	SzDisplayName [260]uint16
+	SzTypeName    [80]uint16
+}
+
 var (
-	user32        = windows.NewLazySystemDLL("user32.dll")
-	procLoadImage = user32.NewProc("LoadImageW")
-	// Note: procSendMessage is declared in window_chrome_windows.go and reused here.
+	shell32Icon        = windows.NewLazySystemDLL("shell32.dll")
+	procSHGetFileInfoW = shell32Icon.NewProc("SHGetFileInfoW")
 )
+
+func loadExeShellIcon(small bool) (uintptr, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return 0, fmt.Errorf("os.Executable failed: %w", err)
+	}
+
+	exePathPtr, err := syscall.UTF16PtrFromString(exePath)
+	if err != nil {
+		return 0, fmt.Errorf("UTF16PtrFromString failed: %w", err)
+	}
+
+	var info shFileInfo
+
+	flags := uintptr(SHGFI_ICON)
+	if small {
+		flags |= SHGFI_SMALLICON
+	} else {
+		flags |= SHGFI_LARGEICON
+	}
+
+	ret, _, callErr := procSHGetFileInfoW.Call(
+		uintptr(unsafe.Pointer(exePathPtr)),
+		0,
+		uintptr(unsafe.Pointer(&info)),
+		unsafe.Sizeof(info),
+		flags,
+	)
+
+	if ret == 0 || info.HIcon == 0 {
+		return 0, fmt.Errorf("SHGetFileInfoW failed: %w", callErr)
+	}
+
+	return info.HIcon, nil
+}
 
 func setTaskbarIcon(w webview2.WebView) error {
 	hwnd := uintptr(w.Window())
@@ -33,30 +79,21 @@ func setTaskbarIcon(w webview2.WebView) error {
 		return nil
 	}
 
-	iconPathPtr, err := syscall.UTF16PtrFromString(`ui\rd-web\src\assets\main.ico`)
+	bigIcon, err := loadExeShellIcon(false)
 	if err != nil {
-		logger.Posrelayv.Warnf("[GUI] Failed to convert taskbar icon path: %v", err)
-		return fmt.Errorf("failed to convert icon path: %w", err)
+		logger.Posrelayv.Warnf("[GUI] Failed to load large exe shell icon: %v", err)
+		return err
 	}
 
-	hIcon, _, _ := procLoadImage.Call(
-		0,
-		uintptr(unsafe.Pointer(iconPathPtr)),
-		IMAGE_ICON,
-		0, 0,
-		LR_LOADFROMFILE|LR_DEFAULTSIZE,
-	)
-	if hIcon == 0 {
-		logger.Posrelayv.Warnf("[GUI] Failed to load taskbar icon")
-		return fmt.Errorf("LoadImage failed")
-	}
-
-	_, _, err = procSendMessage.Call(hwnd, WM_SETICON, uintptr(1), hIcon)
+	smallIcon, err := loadExeShellIcon(true)
 	if err != nil {
-		logger.Posrelayv.Warnf("[GUI] Failed to set taskbar icon: %v", err)
-		return fmt.Errorf("SendMessage failed: %w", err)
+		logger.Posrelayv.Warnf("[GUI] Failed to load small exe shell icon: %v", err)
+		return err
 	}
 
-	logger.Posrelayv.Debug("[GUI] Taskbar icon set")
+	_, _, _ = procSendMessage.Call(hwnd, WM_SETICON, ICON_BIG, bigIcon)
+	_, _, _ = procSendMessage.Call(hwnd, WM_SETICON, ICON_SMALL, smallIcon)
+
+	logger.Posrelayv.Debug("[GUI] Taskbar icon set from exe shell icon")
 	return nil
 }

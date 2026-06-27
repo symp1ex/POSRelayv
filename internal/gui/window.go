@@ -303,6 +303,10 @@ func OpenRDWindow(
 		}
 		defer w.Destroy()
 
+		if err := setTaskbarIcon(w); err != nil {
+			logger.Posrelayv.Warnf("[GUI] RD taskbar icon setup failed: %v", err)
+		}
+
 		win := &rdWebViewWindow{
 			sessionID: sessionID,
 			w:         w,
