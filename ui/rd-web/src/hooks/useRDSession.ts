@@ -3,14 +3,27 @@ import { RDIncomingSignal, sendSignalOut } from "../lib/bridge";
 
 const MAX_CLIPBOARD_TEXT_BYTES = 60 * 1024;
 
+const CONTROL_BUFFERED_LOW_BYTES = 64 * 1024;
+const CONTROL_BUFFERED_HIGH_BYTES = 256 * 1024;
+
+const MOTION_BUFFERED_LOW_BYTES = 8 * 1024;
+const MOTION_BUFFERED_HIGH_BYTES = 32 * 1024;
+
 export function useRDSession(sessionID: string) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const controlRef = useRef<RTCDataChannel | null>(null);
+  const motionRef = useRef<RTCDataChannel | null>(null);
+
   const pendingRemoteIceRef = useRef<RTCIceCandidateInit[]>([]);
   const lastSizeRef = useRef("");
   const msgSeqRef = useRef(0);
   const clipboardSeqRef = useRef(0);
+
+  const controlQueueRef = useRef<string[]>([]);
+  const pendingMouseMoveRef = useRef<{ x: number; y: number } | null>(null);
+  const mouseMoveRAFRef = useRef<number | null>(null);
+  const motionBackpressureRef = useRef(false);
 
 // Последний revision, записанный/прочитанный на стороне viewer.
 // Используем только для защиты от повторной записи в host clipboard,
@@ -93,27 +106,118 @@ export function useRDSession(sessionID: string) {
       return safe;
     }
 
+    function encodeControlMessage(msg: Record<string, unknown>) {
+      return JSON.stringify({
+        id: String(++msgSeqRef.current),
+        session_id: sessionID,
+        ts: now(),
+        ...msg,
+      });
+    }
+
+    function flushControlQueue() {
+      const control = controlRef.current;
+      if (!control || control.readyState !== "open") {
+        return;
+      }
+
+      while (
+          controlQueueRef.current.length > 0 &&
+          control.bufferedAmount < CONTROL_BUFFERED_HIGH_BYTES
+          ) {
+        const raw = controlQueueRef.current.shift();
+        if (!raw) {
+          continue;
+        }
+
+        control.send(raw);
+      }
+
+      if (controlQueueRef.current.length > 0) {
+        setStatus(
+            `control backpressure: queued=${controlQueueRef.current.length} buffered=${control.bufferedAmount}`,
+        );
+      }
+    }
+
     function sendControl(msg: Record<string, unknown>) {
       const control = controlRef.current;
       if (!control || control.readyState !== "open") {
         return false;
       }
 
-      if (control.bufferedAmount > 256 * 1024) {
-        setStatus(`control backpressure: ${control.bufferedAmount}`);
+      const raw = encodeControlMessage(msg);
+
+      if (
+          controlQueueRef.current.length > 0 ||
+          control.bufferedAmount >= CONTROL_BUFFERED_HIGH_BYTES
+      ) {
+        controlQueueRef.current.push(raw);
+        setStatus(
+            `control queued: queued=${controlQueueRef.current.length} buffered=${control.bufferedAmount}`,
+        );
+        return true;
+      }
+
+      control.send(raw);
+      return true;
+    }
+
+    function encodeMotionMessage(msg: Record<string, unknown>) {
+      return JSON.stringify({
+        id: String(++msgSeqRef.current),
+        session_id: sessionID,
+        ts: now(),
+        ...msg,
+      });
+    }
+
+    function sendMotion(msg: Record<string, unknown>) {
+      const motion = motionRef.current;
+      if (!motion || motion.readyState !== "open") {
         return false;
       }
 
-      control.send(
-        JSON.stringify({
-          id: String(++msgSeqRef.current),
-          session_id: sessionID,
-          ts: now(),
-          ...msg,
-        }),
-      );
+      if (motion.bufferedAmount >= MOTION_BUFFERED_HIGH_BYTES) {
+        motionBackpressureRef.current = true;
+        return false;
+      }
 
+      motion.send(encodeMotionMessage(msg));
       return true;
+    }
+
+    function flushLatestMouseMove() {
+      mouseMoveRAFRef.current = null;
+
+      const point = pendingMouseMoveRef.current;
+      if (!point) {
+        return;
+      }
+
+      pendingMouseMoveRef.current = null;
+
+      const sent = sendMotion({
+        type: "mouse_move",
+        x: point.x,
+        y: point.y,
+      });
+
+      if (!sent) {
+        // Не копим старую очередь move-событий.
+        // Оставляем только последнюю позицию и попробуем отправить её позже.
+        pendingMouseMoveRef.current = point;
+      }
+    }
+
+    function scheduleMouseMove(point: { x: number; y: number }) {
+      pendingMouseMoveRef.current = point;
+
+      if (mouseMoveRAFRef.current !== null) {
+        return;
+      }
+
+      mouseMoveRAFRef.current = window.requestAnimationFrame(flushLatestMouseMove);
     }
 
     async function addRemoteIceCandidate(candidate: RTCIceCandidateInit) {
@@ -476,8 +580,7 @@ export function useRDSession(sessionID: string) {
       }
 
       event.preventDefault();
-      sendControl({
-        type: "mouse_move",
+      scheduleMouseMove({
         x: point.x,
         y: point.y,
       });
@@ -692,6 +795,8 @@ export function useRDSession(sessionID: string) {
       if (msg.type === "rd_closed") {
         releasePressedKeys();
         setRDFocus(false);
+        controlRef.current = null;
+        motionRef.current = null;
         pc.close();
         setStatus(`pc closed by signal: ${msg.type}`);
       }
@@ -701,13 +806,30 @@ export function useRDSession(sessionID: string) {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      const control = pc.createDataChannel("control", { ordered: true });
+      const control = pc.createDataChannel("control", {
+        ordered: true,
+      });
+
+      control.bufferedAmountLowThreshold = CONTROL_BUFFERED_LOW_BYTES;
       controlRef.current = control;
+
+      const motion = pc.createDataChannel("motion", {
+        ordered: false,
+        maxRetransmits: 0,
+      });
+
+      motion.bufferedAmountLowThreshold = MOTION_BUFFERED_LOW_BYTES;
+      motionRef.current = motion;
 
       control.onopen = () => {
         setStatus("control open");
+        flushControlQueue();
         sendControl({ type: "focus_changed", focused: false });
         rdWindowActiveRef.current = !document.hidden && document.hasFocus();
+      };
+
+      control.onbufferedamountlow = () => {
+        flushControlQueue();
       };
 
       control.onmessage = async (event) => {
@@ -741,6 +863,26 @@ export function useRDSession(sessionID: string) {
       control.onerror = () => {
         releasePressedKeys();
         setStatus("control error");
+      };
+
+      motion.onopen = () => {
+        setStatus("motion open");
+      };
+
+      motion.onbufferedamountlow = () => {
+        motionBackpressureRef.current = false;
+
+        if (pendingMouseMoveRef.current && mouseMoveRAFRef.current === null) {
+          mouseMoveRAFRef.current = window.requestAnimationFrame(flushLatestMouseMove);
+        }
+      };
+
+      motion.onclose = () => {
+        motionBackpressureRef.current = false;
+      };
+
+      motion.onerror = () => {
+        motionBackpressureRef.current = false;
       };
 
       pc.addTransceiver("video", { direction: "recvonly" });
@@ -805,6 +947,14 @@ export function useRDSession(sessionID: string) {
     return () => {
       disposed = true;
       pendingRemoteIceRef.current = [];
+      controlQueueRef.current = [];
+      pendingMouseMoveRef.current = null;
+
+      if (mouseMoveRAFRef.current !== null) {
+        window.cancelAnimationFrame(mouseMoveRAFRef.current);
+        mouseMoveRAFRef.current = null;
+      }
+
       window.clearInterval(reportVideoSizeInterval);
       releasePressedKeys();
 
