@@ -7,6 +7,7 @@ export function useRDSession(sessionID: string) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const controlRef = useRef<RTCDataChannel | null>(null);
+  const pendingRemoteIceRef = useRef<RTCIceCandidateInit[]>([]);
   const lastSizeRef = useRef("");
   const msgSeqRef = useRef(0);
   const clipboardSeqRef = useRef(0);
@@ -105,6 +106,48 @@ export function useRDSession(sessionID: string) {
       );
 
       return true;
+    }
+
+    async function addRemoteIceCandidate(candidate: RTCIceCandidateInit) {
+      const pc = pcRef.current;
+      if (!pc) {
+        setStatus("remote ICE ignored: pc is not ready");
+        return;
+      }
+
+      if (!candidate || !candidate.candidate) {
+        return;
+      }
+
+      if (!pc.remoteDescription) {
+        pendingRemoteIceRef.current.push(candidate);
+        setStatus(`remote ICE queued: ${pendingRemoteIceRef.current.length}`);
+        return;
+      }
+
+      try {
+        await pc.addIceCandidate(candidate);
+        setStatus("remote ICE added");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setStatus(`addIceCandidate failed: ${message}`);
+        console.error("[RD] addIceCandidate failed", {
+          error,
+          candidate,
+          signalingState: pc.signalingState,
+          iceConnectionState: pc.iceConnectionState,
+          connectionState: pc.connectionState,
+          hasRemoteDescription: Boolean(pc.remoteDescription),
+        });
+      }
+    }
+
+    async function flushPendingRemoteIce() {
+      const pending = pendingRemoteIceRef.current.splice(0);
+
+      for (const candidate of pending) {
+        await addRemoteIceCandidate(candidate);
+      }
     }
 
     function releasePressedKeys() {
@@ -536,18 +579,42 @@ export function useRDSession(sessionID: string) {
     window.__RD_ON_SIGNAL = async (raw: string | RDIncomingSignal) => {
       const msg = typeof raw === "string" ? (JSON.parse(raw) as RDIncomingSignal) : raw;
       const pc = pcRef.current;
+
       if (!pc) {
+        setStatus(`signal ignored: pc is not ready, type=${msg.type}`);
         return;
       }
 
       if (msg.type === "rd_answer" && msg.sdp) {
-        await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-        setStatus("remote answer applied");
-        return;
+        try {
+          await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+          setStatus("remote answer applied");
+
+          await flushPendingRemoteIce();
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`setRemoteDescription failed: ${message}`);
+          console.error("[RD] setRemoteDescription failed", {
+            error,
+            signalingState: pc.signalingState,
+            iceConnectionState: pc.iceConnectionState,
+            connectionState: pc.connectionState,
+          });
+          return;
+        }
       }
 
       if (msg.type === "rd_ice" && msg.candidate) {
-        await pc.addIceCandidate(msg.candidate);
+        await addRemoteIceCandidate(msg.candidate);
+        return;
+      }
+
+      if (msg.type === "rd_closed") {
+        releasePressedKeys();
+        setRDFocus(false);
+        pc.close();
+        setStatus(`pc closed by signal: ${msg.type}`);
       }
     };
 
@@ -607,12 +674,21 @@ export function useRDSession(sessionID: string) {
 
       pc.onicecandidate = (event) => {
         if (!event.candidate) {
+          console.debug("[RD] local ICE gathering complete");
           return;
         }
 
+        const candidate = event.candidate.toJSON();
+
+        console.debug("[RD] local ICE candidate", {
+          candidate: candidate.candidate,
+          sdpMid: candidate.sdpMid,
+          sdpMLineIndex: candidate.sdpMLineIndex,
+        });
+
         sendSignalOut({
           type: "rd_ice",
-          candidate: event.candidate.toJSON(),
+          candidate,
         });
       };
 
@@ -655,6 +731,7 @@ export function useRDSession(sessionID: string) {
 
     return () => {
       disposed = true;
+      pendingRemoteIceRef.current = [];
       window.clearInterval(reportVideoSizeInterval);
       releasePressedKeys();
 
