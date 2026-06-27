@@ -40,6 +40,9 @@ export function useRDSession(sessionID: string) {
 // на пользовательский copy/cut внутри RD-окна.
   const pendingRemoteClipboardPullRef = useRef(0);
 
+  const hoverConfirmTimerRef = useRef<number | null>(null);
+  const lastHoverControlSentAtRef = useRef(0);
+
   const rdFocusedRef = useRef(false);
   const rdWindowActiveRef = useRef(!document.hidden && document.hasFocus());
   const pressedKeysRef = useRef(new Set<string>());
@@ -58,6 +61,7 @@ export function useRDSession(sessionID: string) {
     }
 
     const video: HTMLVideoElement = videoElement;
+    const previousVideoCursor = video.style.cursor;
 
     let disposed = false;
 
@@ -219,11 +223,45 @@ export function useRDSession(sessionID: string) {
     function scheduleMouseMove(point: { x: number; y: number }) {
       pendingMouseMoveRef.current = point;
 
+      if (motionBackpressureRef.current) {
+        return;
+      }
+
       if (mouseMoveRAFRef.current !== null) {
         return;
       }
 
       mouseMoveRAFRef.current = window.requestAnimationFrame(flushLatestMouseMove);
+    }
+
+    function scheduleHoverMove(point: { x: number; y: number }) {
+      scheduleMouseMove(point);
+
+      const nowMs = performance.now();
+
+      if (nowMs - lastHoverControlSentAtRef.current > 100) {
+        lastHoverControlSentAtRef.current = nowMs;
+
+        sendControl({
+          type: "mouse_move",
+          x: point.x,
+          y: point.y,
+        });
+      }
+
+      if (hoverConfirmTimerRef.current !== null) {
+        window.clearTimeout(hoverConfirmTimerRef.current);
+      }
+
+      hoverConfirmTimerRef.current = window.setTimeout(() => {
+        hoverConfirmTimerRef.current = null;
+
+        sendControl({
+          type: "mouse_move",
+          x: point.x,
+          y: point.y,
+        });
+      }, 80);
     }
 
     function flushLatestDragMove() {
@@ -679,7 +717,7 @@ export function useRDSession(sessionID: string) {
         return;
       }
 
-      scheduleMouseMove({
+      scheduleHoverMove({
         x: point.x,
         y: point.y,
       });
@@ -1045,6 +1083,8 @@ export function useRDSession(sessionID: string) {
 
     return () => {
       disposed = true;
+      video.style.cursor = previousVideoCursor;
+
       pendingRemoteIceRef.current = [];
       controlQueueRef.current = [];
       pendingMouseMoveRef.current = null;
@@ -1060,6 +1100,11 @@ export function useRDSession(sessionID: string) {
       if (dragMoveRAFRef.current !== null) {
         window.cancelAnimationFrame(dragMoveRAFRef.current);
         dragMoveRAFRef.current = null;
+      }
+
+      if (hoverConfirmTimerRef.current !== null) {
+        window.clearTimeout(hoverConfirmTimerRef.current);
+        hoverConfirmTimerRef.current = null;
       }
 
       window.clearInterval(reportVideoSizeInterval);
