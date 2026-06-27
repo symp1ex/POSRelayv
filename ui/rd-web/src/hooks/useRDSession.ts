@@ -21,9 +21,15 @@ export function useRDSession(sessionID: string) {
   const clipboardSeqRef = useRef(0);
 
   const controlQueueRef = useRef<string[]>([]);
+
   const pendingMouseMoveRef = useRef<{ x: number; y: number } | null>(null);
   const mouseMoveRAFRef = useRef<number | null>(null);
   const motionBackpressureRef = useRef(false);
+
+  const pressedMouseButtonsRef = useRef(new Set<number>());
+  const activePointerIdRef = useRef<number | null>(null);
+  const pendingDragMoveRef = useRef<{ x: number; y: number } | null>(null);
+  const dragMoveRAFRef = useRef<number | null>(null);
 
 // Последний revision, записанный/прочитанный на стороне viewer.
 // Используем только для защиты от повторной записи в host clipboard,
@@ -220,6 +226,37 @@ export function useRDSession(sessionID: string) {
       mouseMoveRAFRef.current = window.requestAnimationFrame(flushLatestMouseMove);
     }
 
+    function flushLatestDragMove() {
+      dragMoveRAFRef.current = null;
+
+      const point = pendingDragMoveRef.current;
+      if (!point) {
+        return;
+      }
+
+      pendingDragMoveRef.current = null;
+
+      sendControl({
+        type: "mouse_move",
+        x: point.x,
+        y: point.y,
+      });
+    }
+
+    function scheduleDragMove(point: { x: number; y: number }) {
+      pendingDragMoveRef.current = point;
+
+      if (dragMoveRAFRef.current !== null) {
+        return;
+      }
+
+      dragMoveRAFRef.current = window.requestAnimationFrame(flushLatestDragMove);
+    }
+
+    function isDragging() {
+      return pressedMouseButtonsRef.current.size > 0;
+    }
+
     async function addRemoteIceCandidate(candidate: RTCIceCandidateInit) {
       const pc = pcRef.current;
       if (!pc) {
@@ -277,6 +314,14 @@ export function useRDSession(sessionID: string) {
       }
 
       pressedKeysRef.current.clear();
+      pressedMouseButtonsRef.current.clear();
+      activePointerIdRef.current = null;
+      pendingDragMoveRef.current = null;
+
+      if (dragMoveRAFRef.current !== null) {
+        window.cancelAnimationFrame(dragMoveRAFRef.current);
+        dragMoveRAFRef.current = null;
+      }
     }
 
     function setRDFocus(focused: boolean) {
@@ -530,6 +575,10 @@ export function useRDSession(sessionID: string) {
     };
 
     const onPointerLeave = () => {
+      if (isDragging()) {
+        return;
+      }
+
       setRDFocus(false);
     };
 
@@ -538,6 +587,9 @@ export function useRDSession(sessionID: string) {
       if (!point.inside) {
         return;
       }
+
+      activePointerIdRef.current = event.pointerId;
+      pressedMouseButtonsRef.current.add(event.button);
 
       video.setPointerCapture?.(event.pointerId);
       setRDFocus(true);
@@ -560,26 +612,73 @@ export function useRDSession(sessionID: string) {
 
     const onPointerUp = (event: PointerEvent) => {
       const point = normalizedPoint(event);
+
       event.preventDefault();
+
+      if (dragMoveRAFRef.current !== null) {
+        window.cancelAnimationFrame(dragMoveRAFRef.current);
+        dragMoveRAFRef.current = null;
+      }
+
+      pendingDragMoveRef.current = null;
+
+      sendControl({
+        type: "mouse_move",
+        x: point.x,
+        y: point.y,
+      });
+
       sendControl({
         type: "mouse_up",
         x: point.x,
         y: point.y,
         button: buttonName(event.button),
       });
+
+      pressedMouseButtonsRef.current.delete(event.button);
+
+      if (pressedMouseButtonsRef.current.size === 0) {
+        activePointerIdRef.current = null;
+
+        try {
+          video.releasePointerCapture?.(event.pointerId);
+        } catch {
+          // pointer capture мог уже быть снят браузером
+        }
+      }
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      if (!rdFocusedRef.current) {
+      const dragging = isDragging();
+
+      if (!rdFocusedRef.current && !dragging) {
+        return;
+      }
+
+      if (
+          dragging &&
+          activePointerIdRef.current !== null &&
+          event.pointerId !== activePointerIdRef.current
+      ) {
         return;
       }
 
       const point = normalizedPoint(event);
-      if (!point.inside) {
+
+      if (!point.inside && !dragging) {
         return;
       }
 
       event.preventDefault();
+
+      if (dragging) {
+        scheduleDragMove({
+          x: point.x,
+          y: point.y,
+        });
+        return;
+      }
+
       scheduleMouseMove({
         x: point.x,
         y: point.y,
@@ -949,10 +1048,18 @@ export function useRDSession(sessionID: string) {
       pendingRemoteIceRef.current = [];
       controlQueueRef.current = [];
       pendingMouseMoveRef.current = null;
+      pendingDragMoveRef.current = null;
+      pressedMouseButtonsRef.current.clear();
+      activePointerIdRef.current = null;
 
       if (mouseMoveRAFRef.current !== null) {
         window.cancelAnimationFrame(mouseMoveRAFRef.current);
         mouseMoveRAFRef.current = null;
+      }
+
+      if (dragMoveRAFRef.current !== null) {
+        window.cancelAnimationFrame(dragMoveRAFRef.current);
+        dragMoveRAFRef.current = null;
       }
 
       window.clearInterval(reportVideoSizeInterval);
@@ -992,6 +1099,10 @@ export function useRDSession(sessionID: string) {
 
       controlRef.current?.close();
       controlRef.current = null;
+
+      motionRef.current?.close();
+      motionRef.current = null;
+
       pcRef.current?.close();
       pcRef.current = null;
     };
