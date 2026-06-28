@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	version := "0.4.8.8"
+	version := "0.4.9.0"
 	gui.EnableWebView2Diagnostics()
 
 	if app.HandleStartupOptions() {

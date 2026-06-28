@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { RDIncomingSignal, sendSignalOut } from "../lib/bridge";
 
+import {
+  BinaryInputKind,
+  MouseMoveBinaryEncoder,
+  encodeKey,
+  encodeMouseButton,
+  encodeWheel,
+} from "../lib/binaryInput";
+
 const MAX_CLIPBOARD_TEXT_BYTES = 60 * 1024;
 
 const CONTROL_BUFFERED_LOW_BYTES = 64 * 1024;
@@ -25,6 +33,7 @@ export function useRDSession(sessionID: string) {
   const pendingMouseMoveRef = useRef<{ x: number; y: number } | null>(null);
   const mouseMoveRAFRef = useRef<number | null>(null);
   const motionBackpressureRef = useRef(false);
+  const mouseMoveEncoderRef = useRef(new MouseMoveBinaryEncoder());
 
   const pressedMouseButtonsRef = useRef(new Set<number>());
   const activePointerIdRef = useRef<number | null>(null);
@@ -173,16 +182,7 @@ export function useRDSession(sessionID: string) {
       return true;
     }
 
-    function encodeMotionMessage(msg: Record<string, unknown>) {
-      return JSON.stringify({
-        id: String(++msgSeqRef.current),
-        session_id: sessionID,
-        ts: now(),
-        ...msg,
-      });
-    }
-
-    function sendMotion(msg: Record<string, unknown>) {
+    function sendBinaryMotion(raw: ArrayBuffer) {
       const motion = motionRef.current;
       if (!motion || motion.readyState !== "open") {
         return false;
@@ -193,7 +193,26 @@ export function useRDSession(sessionID: string) {
         return false;
       }
 
-      motion.send(encodeMotionMessage(msg));
+      motion.send(raw);
+      return true;
+    }
+
+    function sendBinaryControl(raw: ArrayBuffer) {
+      const control = controlRef.current;
+      if (!control || control.readyState !== "open") {
+        return false;
+      }
+
+      if (
+          controlQueueRef.current.length > 0 ||
+          control.bufferedAmount >= CONTROL_BUFFERED_HIGH_BYTES
+      ) {
+        // Binary control events are hot path and should not be converted to JSON queue.
+        // For move-like events we drop/retry latest elsewhere; for click/key/wheel browser will emit next state.
+        return false;
+      }
+
+      control.send(raw);
       return true;
     }
 
@@ -207,11 +226,8 @@ export function useRDSession(sessionID: string) {
 
       pendingMouseMoveRef.current = null;
 
-      const sent = sendMotion({
-        type: "mouse_move",
-        x: point.x,
-        y: point.y,
-      });
+      const raw = mouseMoveEncoderRef.current.encode(point.x, point.y);
+      const sent = sendBinaryMotion(raw);
 
       if (!sent) {
         // Не копим старую очередь move-событий.
@@ -242,11 +258,7 @@ export function useRDSession(sessionID: string) {
       if (nowMs - lastHoverControlSentAtRef.current > 100) {
         lastHoverControlSentAtRef.current = nowMs;
 
-        sendControl({
-          type: "mouse_move",
-          x: point.x,
-          y: point.y,
-        });
+        sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
       }
 
       if (hoverConfirmTimerRef.current !== null) {
@@ -256,11 +268,7 @@ export function useRDSession(sessionID: string) {
       hoverConfirmTimerRef.current = window.setTimeout(() => {
         hoverConfirmTimerRef.current = null;
 
-        sendControl({
-          type: "mouse_move",
-          x: point.x,
-          y: point.y,
-        });
+        sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
       }, 80);
     }
 
@@ -274,11 +282,7 @@ export function useRDSession(sessionID: string) {
 
       pendingDragMoveRef.current = null;
 
-      sendControl({
-        type: "mouse_move",
-        x: point.x,
-        y: point.y,
-      });
+      sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
     }
 
     function scheduleDragMove(point: { x: number; y: number }) {
@@ -339,16 +343,10 @@ export function useRDSession(sessionID: string) {
 
     function releasePressedKeys() {
       for (const code of Array.from(pressedKeysRef.current)) {
-        sendControl({
-          type: "key_up",
-          code,
-          key: "",
-          ctrl: false,
-          shift: false,
-          alt: false,
-          meta: false,
-          repeat: false,
-        });
+        const raw = encodeKey(BinaryInputKind.KeyUp, code);
+        if (raw) {
+          sendBinaryControl(raw);
+        }
       }
 
       pressedKeysRef.current.clear();
@@ -640,12 +638,9 @@ export function useRDSession(sessionID: string) {
         });
       }
 
-      sendControl({
-        type: "mouse_down",
-        x: point.x,
-        y: point.y,
-        button: buttonName(event.button),
-      });
+      sendBinaryControl(
+          encodeMouseButton(BinaryInputKind.MouseDown, point.x, point.y, event.button),
+      );
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -660,18 +655,11 @@ export function useRDSession(sessionID: string) {
 
       pendingDragMoveRef.current = null;
 
-      sendControl({
-        type: "mouse_move",
-        x: point.x,
-        y: point.y,
-      });
+      sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
 
-      sendControl({
-        type: "mouse_up",
-        x: point.x,
-        y: point.y,
-        button: buttonName(event.button),
-      });
+      sendBinaryControl(
+          encodeMouseButton(BinaryInputKind.MouseUp, point.x, point.y, event.button),
+      );
 
       pressedMouseButtonsRef.current.delete(event.button);
 
@@ -734,13 +722,9 @@ export function useRDSession(sessionID: string) {
       }
 
       event.preventDefault();
-      sendControl({
-        type: "mouse_wheel",
-        x: point.x,
-        y: point.y,
-        delta_x: Math.trunc(event.deltaX),
-        delta_y: Math.trunc(event.deltaY),
-      });
+      sendBinaryControl(
+          encodeWheel(point.x, point.y, event.deltaX, event.deltaY),
+      );
     };
 
     const onKeyDown = async (event: KeyboardEvent) => {
@@ -770,16 +754,10 @@ export function useRDSession(sessionID: string) {
 
       pressedKeysRef.current.add(event.code);
 
-      sendControl({
-        type: "key_down",
-        code: event.code,
-        key: event.key,
-        ctrl: event.ctrlKey,
-        shift: event.shiftKey,
-        alt: event.altKey,
-        meta: event.metaKey,
-        repeat: false,
-      });
+      const keyDown = encodeKey(BinaryInputKind.KeyDown, event.code);
+      if (keyDown) {
+        sendBinaryControl(keyDown);
+      }
 
       if (isCopyShortcut) {
         scheduleRemoteClipboardPull("copy-shortcut");
@@ -798,16 +776,10 @@ export function useRDSession(sessionID: string) {
 
       event.preventDefault();
       pressedKeysRef.current.delete(event.code);
-      sendControl({
-        type: "key_up",
-        code: event.code,
-        key: event.key,
-        ctrl: event.ctrlKey,
-        shift: event.shiftKey,
-        alt: event.altKey,
-        meta: event.metaKey,
-        repeat: false,
-      });
+      const keyUp = encodeKey(BinaryInputKind.KeyUp, event.code);
+      if (keyUp) {
+        sendBinaryControl(keyUp);
+      }
     };
 
     const onCopy = () => {
