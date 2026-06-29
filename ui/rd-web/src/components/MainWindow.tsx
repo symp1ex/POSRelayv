@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SettingsWindow from "./SettingsWindow";
 import phIcon from "../assets/ph-icon.png";
 import rdIcon from "../assets/rd-icon.png";
 import mainIcon from "../assets/main.png";
@@ -100,7 +101,7 @@ export default function MainWindow() {
     const [actionText, setActionText] = useState("Интерфейс готов");
     const [connectionMode, setConnectionMode] = useState<"withRD" | "withoutRD">("withRD");
     const [popupMessage, setPopupMessage] = useState("");
-    const [isSettingsWindowOpen, setIsSettingsWindowOpen] = useState(false);
+    const [isSettingsScreenOpen, setIsSettingsScreenOpen] = useState(false);
 
     const visibleConnections = activeTab === "recent" ? recentConnections : contacts;
 
@@ -170,19 +171,6 @@ export default function MainWindow() {
         };
     }, []);
 
-    useEffect(() => {
-        function onSettingsWindowState(event: Event) {
-            const customEvent = event as CustomEvent<{ open?: boolean }>;
-            setIsSettingsWindowOpen(Boolean(customEvent.detail?.open));
-        }
-
-        window.addEventListener("settings-window-state", onSettingsWindowState);
-
-        return () => {
-            window.removeEventListener("settings-window-state", onSettingsWindowState);
-        };
-    }, []);
-
     function animateAction(text: string) {
         setActionText(text);
     }
@@ -205,17 +193,14 @@ export default function MainWindow() {
         animateAction("Закрытие окна недоступно");
     }
 
-    async function toggleSettings() {
-        if (window.toggleSettingsWindow) {
-            const isOpen = await window.toggleSettingsWindow();
+    function openSettings() {
+        setIsSettingsScreenOpen(true);
+        animateAction("Открыты настройки");
+    }
 
-            setIsSettingsWindowOpen(isOpen);
-            animateAction(isOpen ? "Открыто окно настроек" : "Окно настроек закрыто");
-
-            return;
-        }
-
-        animateAction("Окно настроек недоступно");
+    function closeSettings() {
+        setIsSettingsScreenOpen(false);
+        animateAction("Главное окно");
     }
 
     function dragWindow() {
@@ -303,6 +288,10 @@ export default function MainWindow() {
         }
     }
 
+    if (isSettingsScreenOpen) {
+        return <SettingsWindow embedded onBack={closeSettings} />;
+    }
+
     return (
         <main className="main-window" aria-label="Главное окно POSRelay RD">
             <section className="app-shell">
@@ -365,10 +354,10 @@ export default function MainWindow() {
                     <div className="side-nav__bottom">
                         <button
                             type="button"
-                            className={isSettingsWindowOpen ? "side-nav__item side-nav__item--active" : "side-nav__item"}
+                            className={isSettingsScreenOpen ? "side-nav__item side-nav__item--active" : "side-nav__item"}
                             aria-label="Settings"
-                            aria-pressed={isSettingsWindowOpen}
-                            onClick={() => void toggleSettings()}
+                            aria-pressed={isSettingsScreenOpen}
+                            onClick={openSettings}
                         >
                             <span className="side-nav__marker" />
                             <span className="side-nav__icon">

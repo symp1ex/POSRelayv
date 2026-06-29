@@ -43,9 +43,6 @@ var (
 
 	mainWindowMu sync.Mutex
 	mainWindow   webview2.WebView
-
-	settingsWindowMu sync.Mutex
-	settingsWindow   webview2.WebView
 )
 
 func startConnectionProcess(clientID string, password string, startRD bool, showConsole bool) error {
@@ -147,197 +144,45 @@ func ShowMainWindowPopup(message string) {
 	})
 }
 
-func dispatchSettingsWindowState(open bool) {
-	mainWindowMu.Lock()
-	w := mainWindow
-	mainWindowMu.Unlock()
-
-	if w == nil {
-		logger.Posrelayv.Debug("[GUI] Settings window state dispatch skipped because main window is empty")
-		return
-	}
-
-	payload, err := json.Marshal(map[string]bool{
-		"open": open,
-	})
-	if err != nil {
-		logger.Posrelayv.Warnf("[GUI] Failed to marshal settings window state payload: %v", err)
-		return
-	}
-
-	w.Dispatch(func() {
-		js := fmt.Sprintf(
-			"window.dispatchEvent(new CustomEvent('settings-window-state', { detail: %s }));",
-			string(payload),
-		)
-		w.Eval(js)
-	})
-}
-
-func ToggleSettingsWindow(version string) bool {
-	settingsWindowMu.Lock()
-	existingWindow := settingsWindow
-	settingsWindowMu.Unlock()
-
-	if existingWindow != nil {
-		logger.Posrelayv.Debug("[GUI] Closing settings window by toggle button")
-		existingWindow.Dispatch(func() {
-			CloseMainWindow(existingWindow)
-		})
-		return false
-	}
-
-	OpenSettingsWindow(version)
-	return true
-}
-
-func OpenSettingsWindow(version string) {
-	settingsWindowMu.Lock()
-	existingWindow := settingsWindow
-	settingsWindowMu.Unlock()
-
-	if existingWindow != nil {
-		logger.Posrelayv.Debug("[GUI] Settings window is already open")
-		existingWindow.Dispatch(func() {
-			ShowWebViewWindow(existingWindow)
-		})
-		dispatchSettingsWindowState(true)
-		return
-	}
-
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		logger.Posrelayv.Debug("[GUI] Creating settings WebView window")
-
-		debugWebView := IsWebView2DebugEnabled()
-
-		w := webview2.NewWithOptions(webview2.WebViewOptions{
-			Debug:     debugWebView,
-			AutoFocus: true,
-			WindowOptions: webview2.WindowOptions{
-				Title:  "Settings",
-				Width:  settingsWindowWidth,
-				Height: settingsWindowHeight,
-				Center: true,
-			},
-		})
-		if w == nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to create settings WebView window")
-			return
-		}
-
-		settingsWindowMu.Lock()
-		settingsWindow = w
-		settingsWindowMu.Unlock()
-
-		settingsWindowMu.Lock()
-		settingsWindow = w
-		settingsWindowMu.Unlock()
-
-		dispatchSettingsWindowState(true)
-
-		defer func() {
-			settingsWindowMu.Lock()
-			if settingsWindow == w {
-				settingsWindow = nil
-			}
-			settingsWindowMu.Unlock()
-
-			dispatchSettingsWindowState(false)
-
-			logger.Posrelayv.Debug("[GUI] Settings window reference cleared")
-		}()
-
-		defer w.Destroy()
-
-		if err := setTaskbarIcon(w); err != nil {
-			logger.Posrelayv.Warnf("[GUI] Settings taskbar icon setup failed: %v", err)
-		}
-
-		if err := w.Bind("loadSettingsConfigs", func() map[string]any {
-			configs, err := config.LoadSettingsConfigs()
-			if err != nil {
-				logger.Posrelayv.Errorf("[GUI] Failed to load settings configs: %v", err)
-				return map[string]any{
-					"ok":      false,
-					"message": err.Error(),
-					"configs": []config.SettingsConfigFile{},
-				}
-			}
-
-			return map[string]any{
-				"ok":      true,
-				"message": "",
-				"configs": configs,
-			}
-		}); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to bind loadSettingsConfigs: %v", err)
-			return
-		}
-
-		if err := w.Bind("saveSettingsConfig", func(name string, data *orderedmap.OrderedMap) map[string]any {
-			if err := config.SaveSettingsConfig(name, data); err != nil {
-				logger.Posrelayv.Errorf("[GUI] Failed to save settings config %s: %v", name, err)
-				return map[string]any{
-					"ok":      false,
-					"message": err.Error(),
-				}
-			}
-
-			return map[string]any{
-				"ok":      true,
-				"message": "Settings saved",
-			}
-		}); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to bind saveSettingsConfig: %v", err)
-			return
-		}
-
-		if err := w.Bind("settingsWindowMinimize", func() {
-			MinimizeMainWindow(w)
-		}); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowMinimize: %v", err)
-			return
-		}
-
-		if err := w.Bind("settingsWindowClose", func() {
-			CloseMainWindow(w)
-		}); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowClose: %v", err)
-			return
-		}
-
-		if err := w.Bind("settingsWindowDrag", func() {
-			DragMainWindow(w)
-		}); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowDrag: %v", err)
-			return
-		}
-
-		if err := ApplyFixedWindowChrome(w, settingsWindowWidth, settingsWindowHeight); err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to apply settings window chrome: %v", err)
-			return
-		}
-
-		uiURL, err := rdWebURL("")
+func bindSettingsBridge(w webview2.WebView) error {
+	if err := w.Bind("loadSettingsConfigs", func() map[string]any {
+		configs, err := config.LoadSettingsConfigs()
 		if err != nil {
-			logger.Posrelayv.Errorf("[GUI] Failed to resolve settings URL: %v", err)
-			return
+			logger.Posrelayv.Errorf("[GUI] Failed to load settings configs: %v", err)
+			return map[string]any{
+				"ok":      false,
+				"message": err.Error(),
+				"configs": []config.SettingsConfigFile{},
+			}
 		}
 
-		settingsURL := uiURL + "settings.html"
+		return map[string]any{
+			"ok":      true,
+			"message": "",
+			"configs": configs,
+		}
+	}); err != nil {
+		return fmt.Errorf("bind loadSettingsConfigs: %w", err)
+	}
 
-		w.SetTitle("POSRelayv Settings")
+	if err := w.Bind("saveSettingsConfig", func(name string, data *orderedmap.OrderedMap) map[string]any {
+		if err := config.SaveSettingsConfig(name, data); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to save settings config %s: %v", name, err)
+			return map[string]any{
+				"ok":      false,
+				"message": err.Error(),
+			}
+		}
 
-		logger.Posrelayv.Infof("[GUI] Navigating settings window: url=%s", settingsURL)
-		w.Navigate(settingsURL)
+		return map[string]any{
+			"ok":      true,
+			"message": "Settings saved",
+		}
+	}); err != nil {
+		return fmt.Errorf("bind saveSettingsConfig: %w", err)
+	}
 
-		w.Run()
-
-		logger.Posrelayv.Debug("[GUI] Settings window event loop stopped")
-	}()
+	return nil
 }
 
 func OpenMainWindow(startSession StartSessionHandler, version string) error {
@@ -386,10 +231,8 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 	defer w.Destroy()
 	defer closeSessionJob()
 
-	if err := w.Bind("toggleSettingsWindow", func() bool {
-		return ToggleSettingsWindow(version)
-	}); err != nil {
-		logger.Posrelayv.Errorf("[GUI] Failed to bind toggleSettingsWindow: %v", err)
+	if err := bindSettingsBridge(w); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind settings bridge: %v", err)
 		return err
 	}
 

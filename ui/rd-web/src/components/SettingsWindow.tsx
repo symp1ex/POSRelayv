@@ -26,7 +26,12 @@ function settingTitle(value: string) {
     return value.replaceAll("_", " ");
 }
 
-export default function SettingsWindow() {
+type SettingsWindowProps = {
+    embedded?: boolean;
+    onBack?: () => void;
+};
+
+export default function SettingsWindow({ embedded = false, onBack }: SettingsWindowProps) {
     const [configs, setConfigs] = useState<SettingsConfigFile[]>([]);
     const [activeConfigName, setActiveConfigName] = useState("");
     const [statusText, setStatusText] = useState("Loading settings...");
@@ -88,15 +93,39 @@ export default function SettingsWindow() {
     }, []);
 
     function dragWindow() {
+        if (embedded) {
+            window.mainWindowDrag?.();
+            return;
+        }
+
         window.settingsWindowDrag?.();
     }
 
     function minimizeWindow() {
+        if (embedded) {
+            window.mainWindowMinimize?.();
+            return;
+        }
+
         window.settingsWindowMinimize?.();
     }
 
     function closeWindow() {
+        if (embedded) {
+            window.mainWindowClose?.();
+            return;
+        }
+
         window.settingsWindowClose?.();
+    }
+
+    function goBack() {
+        if (embedded && onBack) {
+            onBack();
+            return;
+        }
+
+        closeWindow();
     }
 
     async function loadConfigs() {
@@ -357,7 +386,7 @@ export default function SettingsWindow() {
                     <span className="settings-titlebar__logo">
                         <img src={mainIcon} alt="" className="main-icon ph-icon--title" />
                     </span>
-                    <span>POSRelayv</span>
+                    <span>Settings</span>
                 </div>
 
                 <div className="settings-titlebar__actions">
@@ -385,7 +414,15 @@ export default function SettingsWindow() {
 
             <section className="settings-layout">
                 <aside className="settings-sidebar">
-                    <div className="settings-sidebar__title">Settings</div>
+                    <button
+                        type="button"
+                        className="settings-back-button"
+                        aria-label="Back"
+                        title="Back"
+                        onClick={goBack}
+                    >
+                        ←
+                    </button>
 
                     {configs.map((config) => (
                         <button

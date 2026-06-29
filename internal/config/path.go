@@ -19,6 +19,7 @@ var (
 	workDir    string
 	configsDir string
 	storageDir string
+	cacheDir   string
 )
 
 func Init() error {
@@ -30,8 +31,9 @@ func Init() error {
 
 		configsDir = filepath.Join(workDir, "configs")
 		storageDir = filepath.Join(workDir, "storage")
+		cacheDir = filepath.Join(workDir, "cache")
 
-		for _, dir := range []string{workDir, configsDir, storageDir} {
+		for _, dir := range []string{workDir, configsDir, storageDir, cacheDir} {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				initErr = fmt.Errorf("create directory %s: %w", dir, err)
 				return
@@ -55,6 +57,11 @@ func ConfigsDir() string {
 func StorageDir() string {
 	mustInit()
 	return storageDir
+}
+
+func CacheDir() string {
+	mustInit()
+	return cacheDir
 }
 
 func ConfigPath(name string) string {
