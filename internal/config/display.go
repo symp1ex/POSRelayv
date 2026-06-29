@@ -9,18 +9,18 @@ import (
 const displayConfigName = "Display.json"
 
 const (
-	DefaultDisplayQuality   = "auto"
+	DefaultDisplayQuality   = "Auto"
 	DefaultDisplayCodec     = "h264"
 	DefaultShowRemoteCursor = true
 )
 
 var (
 	DefaultDisplayQualityList = []string{
-		"auto",
-		"ultra",
-		"high",
-		"medium",
-		"low",
+		"Auto",
+		"Ultra",
+		"High",
+		"Medium",
+		"Low",
 	}
 
 	DefaultDisplayCodecList = []string{
@@ -35,10 +35,14 @@ type DisplayOption struct {
 	List   []string `json:"list"`
 }
 
+type DisplayVideoStreamConfig struct {
+	Quality DisplayOption `json:"Quality"`
+	Codec   DisplayOption `json:"Codec"`
+}
+
 type DisplayConfig struct {
-	Quality DisplayOption      `json:"Quality"`
-	Codec   DisplayOption      `json:"Codec"`
-	Other   DisplayOtherConfig `json:"Other"`
+	VideoStream DisplayVideoStreamConfig `json:"Video_Stream"`
+	Other       DisplayOtherConfig       `json:"Other"`
 }
 
 type DisplayOtherConfig struct {
@@ -47,13 +51,15 @@ type DisplayOtherConfig struct {
 
 func DefaultDisplayConfig() DisplayConfig {
 	return DisplayConfig{
-		Quality: DisplayOption{
-			Active: DefaultDisplayQuality,
-			List:   DefaultDisplayQualityList,
-		},
-		Codec: DisplayOption{
-			Active: DefaultDisplayCodec,
-			List:   DefaultDisplayCodecList,
+		VideoStream: DisplayVideoStreamConfig{
+			Quality: DisplayOption{
+				Active: DefaultDisplayQuality,
+				List:   DefaultDisplayQualityList,
+			},
+			Codec: DisplayOption{
+				Active: DefaultDisplayCodec,
+				List:   DefaultDisplayCodecList,
+			},
 		},
 		Other: DisplayOtherConfig{
 			ShowRemoteCursor: DefaultShowRemoteCursor,
@@ -83,8 +89,8 @@ func LoadDisplayConfig() DisplayConfig {
 	if !ok {
 		cfgLogger.Warnf(
 			"Display config contains unsupported values, recreating defaults: quality=%q codec=%q",
-			cfg.Quality.Active,
-			cfg.Codec.Active,
+			cfg.VideoStream.Quality.Active,
+			cfg.VideoStream.Codec.Active,
 		)
 		normalized = DefaultDisplayConfig()
 		_ = SaveDisplayConfig(normalized)
@@ -107,43 +113,45 @@ func SaveDisplayConfig(cfg DisplayConfig) error {
 	return os.WriteFile(ConfigPath(displayConfigName), data, 0644)
 }
 
+func EnsureDisplayConfig() {
+	_ = LoadDisplayConfig()
+}
+
 func NormalizeDisplayConfig(cfg DisplayConfig) (DisplayConfig, bool) {
-	cfg.Quality.Active = strings.ToLower(strings.TrimSpace(cfg.Quality.Active))
-	cfg.Codec.Active = strings.ToLower(strings.TrimSpace(cfg.Codec.Active))
+	cfg.VideoStream.Quality.Active = strings.ToLower(strings.TrimSpace(cfg.VideoStream.Quality.Active))
+	cfg.VideoStream.Codec.Active = strings.ToLower(strings.TrimSpace(cfg.VideoStream.Codec.Active))
 
-	if cfg.Quality.Active == "" {
-		cfg.Quality.Active = DefaultDisplayQuality
+	if cfg.VideoStream.Quality.Active == "" {
+		cfg.VideoStream.Quality.Active = DefaultDisplayQuality
 	}
-	if cfg.Codec.Active == "" {
-		cfg.Codec.Active = DefaultDisplayCodec
+	if cfg.VideoStream.Codec.Active == "" {
+		cfg.VideoStream.Codec.Active = DefaultDisplayCodec
 	}
 
-	switch cfg.Quality.Active {
+	switch cfg.VideoStream.Quality.Active {
 	case "auto", "low", "medium", "high", "ultra":
 	default:
 		return DisplayConfig{}, false
 	}
 
-	switch cfg.Codec.Active {
+	switch cfg.VideoStream.Codec.Active {
 	case "auto", "vp8", "h264", "av1":
 	default:
 		return DisplayConfig{}, false
 	}
 
-	// list пока не обрабатываем как пользовательскую настройку,
-	// а всегда приводим к дефолтному виду.
-	cfg.Quality.List = DefaultDisplayQualityList
-	cfg.Codec.List = DefaultDisplayCodecList
+	cfg.VideoStream.Quality.List = DefaultDisplayQualityList
+	cfg.VideoStream.Codec.List = DefaultDisplayCodecList
 
 	return cfg, true
 }
 
 func displayConfigEqual(a, b DisplayConfig) bool {
-	return a.Quality.Active == b.Quality.Active &&
-		a.Codec.Active == b.Codec.Active &&
+	return a.VideoStream.Quality.Active == b.VideoStream.Quality.Active &&
+		a.VideoStream.Codec.Active == b.VideoStream.Codec.Active &&
 		a.Other.ShowRemoteCursor == b.Other.ShowRemoteCursor &&
-		stringSlicesEqual(a.Quality.List, b.Quality.List) &&
-		stringSlicesEqual(a.Codec.List, b.Codec.List)
+		stringSlicesEqual(a.VideoStream.Quality.List, b.VideoStream.Quality.List) &&
+		stringSlicesEqual(a.VideoStream.Codec.List, b.VideoStream.Codec.List)
 }
 
 func stringSlicesEqual(a, b []string) bool {

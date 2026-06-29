@@ -9,13 +9,14 @@ import (
 )
 
 func main() {
-	version := "0.4.9.3"
+	version := "0.4.10.2"
 
 	if err := config.Init(); err != nil {
 		log.Fatal(err)
 	}
 
 	config.SetLogger(logger.Posrelayv)
+	config.EnsureDisplayConfig()
 
 	gui.EnableWebView2Diagnostics()
 

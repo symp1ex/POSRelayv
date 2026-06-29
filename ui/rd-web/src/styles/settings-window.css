@@ -265,3 +265,19 @@ select {
     padding: 22px;
     color: rgba(238, 246, 255, 0.72);
 }
+
+.settings-nested-group {
+    border: 1px solid rgba(148, 179, 215, 0.12);
+    border-radius: 14px;
+    background: rgba(5, 16, 29, 0.34);
+    padding: 14px;
+}
+
+.settings-nested-title {
+    margin-bottom: 12px;
+    color: rgba(238, 246, 255, 0.64);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}

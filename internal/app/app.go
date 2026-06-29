@@ -160,8 +160,8 @@ func Run() {
 
 		logger.Posrelayv.Debugf(
 			"Sending rd_start message: display_quality=%s display_codec=%s",
-			displayCfg.Quality,
-			displayCfg.Codec,
+			displayCfg.VideoStream.Quality.Active,
+			displayCfg.VideoStream.Codec.Active,
 		)
 
 		if err := conn.WriteJSON(ws.Message{
@@ -170,8 +170,8 @@ func Run() {
 			SessionID: sessionID,
 			ClientID:  clientID,
 			Display: ws.DisplayConfig{
-				Quality: displayCfg.Quality.Active,
-				Codec:   displayCfg.Codec.Active,
+				Quality: displayCfg.VideoStream.Quality.Active,
+				Codec:   displayCfg.VideoStream.Codec.Active,
 			},
 		}); err != nil {
 			logger.Posrelayv.Errorf("Failed to send rd_start message: %v", err)
@@ -365,8 +365,8 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 
 			logger.Posrelayv.Debugf(
 				"Sending rd_start message for connection session: display_quality=%s display_codec=%s",
-				displayCfg.Quality,
-				displayCfg.Codec,
+				displayCfg.VideoStream.Quality.Active,
+				displayCfg.VideoStream.Codec.Active,
 			)
 
 			if err := conn.WriteJSON(ws.Message{
@@ -375,8 +375,8 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 				SessionID: sessionID,
 				ClientID:  authorizedClientID,
 				Display: ws.DisplayConfig{
-					Quality: displayCfg.Quality.Active,
-					Codec:   displayCfg.Codec.Active,
+					Quality: displayCfg.VideoStream.Quality.Active,
+					Codec:   displayCfg.VideoStream.Codec.Active,
 				},
 			}); err != nil {
 				logger.Posrelayv.Errorf("Failed to send rd_start message during connection session: %v", err)

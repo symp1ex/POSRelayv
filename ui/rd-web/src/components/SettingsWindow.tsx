@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import mainIcon from "../assets/main.png";
 import type { JsonSettingObject, JsonSettingValue, SettingsConfigFile } from "../lib/bridge";
 
-function isPlainObject(value: JsonSettingValue): value is JsonSettingObject {
+function isPlainObject(value: JsonSettingValue | undefined): value is JsonSettingObject {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isSelectSetting(value: JsonSettingValue): value is { active: string; list: string[] } {
+function isSelectSetting(value: JsonSettingValue | undefined): value is { active: string; list: string[] } {
     if (!isPlainObject(value)) {
         return false;
     }
@@ -143,23 +143,53 @@ export default function SettingsWindow() {
         });
     }
 
-    function updateSelectSetting(blockKey: string, value: string) {
-        updateActiveConfig((draft) => {
-            const block = draft[blockKey];
+    function getSettingByPath(root: JsonSettingObject, path: string[]): JsonSettingValue | undefined {
+        let current: JsonSettingValue = root;
 
-            if (isSelectSetting(block)) {
-                block.active = value;
+        for (const key of path) {
+            if (!isPlainObject(current)) {
+                return undefined;
+            }
+
+            current = current[key];
+        }
+
+        return current;
+    }
+
+    function setSettingByPath(root: JsonSettingObject, path: string[], value: string | number | boolean) {
+        let current: JsonSettingValue = root;
+
+        for (let index = 0; index < path.length - 1; index += 1) {
+            const key = path[index];
+
+            if (!isPlainObject(current)) {
+                return;
+            }
+
+            current = current[key];
+        }
+
+        if (!isPlainObject(current)) {
+            return;
+        }
+
+        current[path[path.length - 1]] = value;
+    }
+
+    function updateSelectSetting(path: string[], value: string) {
+        updateActiveConfig((draft) => {
+            const setting = getSettingByPath(draft, path);
+
+            if (isSelectSetting(setting)) {
+                setting.active = value;
             }
         });
     }
 
-    function updateBlockField(blockKey: string, fieldKey: string, value: string | number | boolean) {
+    function updatePrimitiveSetting(path: string[], value: string | number | boolean) {
         updateActiveConfig((draft) => {
-            const block = draft[blockKey];
-
-            if (isPlainObject(block)) {
-                block[fieldKey] = value;
-            }
+            setSettingByPath(draft, path, value);
         });
     }
 
@@ -193,30 +223,32 @@ export default function SettingsWindow() {
         }
     }
 
-    function renderPrimitiveSetting(blockKey: string, fieldKey: string, value: JsonSettingValue) {
+    function renderPrimitiveSetting(path: string[], label: string, value: JsonSettingValue) {
+        const key = path.join(".");
+
         if (typeof value === "boolean") {
             return (
-                <label key={fieldKey} className="settings-checkbox-row">
+                <label key={key} className="settings-checkbox-row">
                     <input
                         type="checkbox"
                         checked={value}
-                        onChange={(event) => updateBlockField(blockKey, fieldKey, event.target.checked)}
+                        onChange={(event) => updatePrimitiveSetting(path, event.target.checked)}
                     />
-                    <span>{settingTitle(fieldKey)}</span>
+                    <span>{settingTitle(label)}</span>
                 </label>
             );
         }
 
         if (typeof value === "number") {
             return (
-                <label key={fieldKey} className="settings-field">
-                    <span>{settingTitle(fieldKey)}</span>
+                <label key={key} className="settings-field">
+                    <span>{settingTitle(label)}</span>
                     <input
                         type="number"
                         value={value}
                         onChange={(event) => {
                             const parsed = Number(event.target.value);
-                            updateBlockField(blockKey, fieldKey, Number.isNaN(parsed) ? 0 : parsed);
+                            updatePrimitiveSetting(path, Number.isNaN(parsed) ? 0 : parsed);
                         }}
                     />
                 </label>
@@ -225,12 +257,12 @@ export default function SettingsWindow() {
 
         if (typeof value === "string") {
             return (
-                <label key={fieldKey} className="settings-field">
-                    <span>{settingTitle(fieldKey)}</span>
+                <label key={key} className="settings-field">
+                    <span>{settingTitle(label)}</span>
                     <input
                         type="text"
                         value={value}
-                        onChange={(event) => updateBlockField(blockKey, fieldKey, event.target.value)}
+                        onChange={(event) => updatePrimitiveSetting(path, event.target.value)}
                     />
                 </label>
             );
@@ -239,44 +271,75 @@ export default function SettingsWindow() {
         return null;
     }
 
-    function renderBlock(blockKey: string, blockValue: JsonSettingValue) {
-        if (isSelectSetting(blockValue)) {
-            return (
-                <section key={blockKey} className="settings-block">
-                    <h2>{settingTitle(blockKey)}</h2>
+    function renderSelectSetting(path: string[], label: string, value: { active: string; list: string[] }) {
+        return (
+            <label key={path.join(".")} className="settings-field">
+                <span>{settingTitle(label)}</span>
+                <select
+                    value={value.active}
+                    onChange={(event) => updateSelectSetting(path, event.target.value)}
+                >
+                    {value.list.map((option) => (
+                        <option key={option} value={option}>
+                            {option}
+                        </option>
+                    ))}
+                </select>
+            </label>
+        );
+    }
 
-                    <label className="settings-field">
-                        <span>{settingTitle(blockKey)}</span>
-                        <select
-                            value={blockValue.active}
-                            onChange={(event) => updateSelectSetting(blockKey, event.target.value)}
-                        >
-                            {blockValue.list.map((option) => (
-                                <option key={option} value={option}>
-                                    {option}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                </section>
+    function renderSetting(path: string[], label: string, value: JsonSettingValue, depth = 0) {
+        if (isSelectSetting(value)) {
+            return renderSelectSetting(path, label, value);
+        }
+
+        if (isPlainObject(value)) {
+            return (
+                <div
+                    key={path.join(".")}
+                    className={depth > 0 ? "settings-nested-group" : "settings-block__fields"}
+                >
+                    {depth > 0 ? (
+                        <div className="settings-nested-title">
+                            {settingTitle(label)}
+                        </div>
+                    ) : null}
+
+                    <div className="settings-block__fields">
+                        {Object.entries(value)
+                            .filter(([fieldKey]) => fieldKey !== "active" && fieldKey !== "list")
+                            .map(([fieldKey, fieldValue]) =>
+                                renderSetting([...path, fieldKey], fieldKey, fieldValue, depth + 1),
+                            )}
+                    </div>
+                </div>
             );
         }
 
-        if (isPlainObject(blockValue)) {
-            return (
-                <section key={blockKey} className="settings-block">
-                    <h2>{settingTitle(blockKey)}</h2>
+        return renderPrimitiveSetting(path, label, value);
+    }
 
+    function renderBlock(blockKey: string, blockValue: JsonSettingValue) {
+        return (
+            <section key={blockKey} className="settings-block">
+                <h2>{settingTitle(blockKey)}</h2>
+
+                {isSelectSetting(blockValue) ? (
+                    renderSelectSetting([blockKey], blockKey, blockValue)
+                ) : isPlainObject(blockValue) ? (
                     <div className="settings-block__fields">
                         {Object.entries(blockValue)
                             .filter(([fieldKey]) => fieldKey !== "active" && fieldKey !== "list")
-                            .map(([fieldKey, value]) => renderPrimitiveSetting(blockKey, fieldKey, value))}
+                            .map(([fieldKey, value]) =>
+                                renderSetting([blockKey, fieldKey], fieldKey, value),
+                            )}
                     </div>
-                </section>
-            );
-        }
-
-        return null;
+                ) : (
+                    renderPrimitiveSetting([blockKey], blockKey, blockValue)
+                )}
+            </section>
+        );
     }
 
     return (
@@ -360,7 +423,7 @@ export default function SettingsWindow() {
                             onClick={() => void loadConfigs()}
                             disabled={isLoading || isSaving}
                         >
-                            Обновить
+                            Restore
                         </button>
 
                         <button
