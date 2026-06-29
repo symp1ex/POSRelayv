@@ -1003,3 +1003,22 @@
     transform: scale(var(--modal-scale));
     transform-origin: center center;
 }
+
+.side-nav {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.side-nav__top,
+.side-nav__bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.settingsIcon--side {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}

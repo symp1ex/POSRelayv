@@ -16,10 +16,41 @@ export type StartHiddenConsoleResult = {
   message?: string;
 };
 
+export type JsonSettingValue = string | number | boolean | null | JsonSettingObject | JsonSettingValue[];
+
+export type JsonSettingObject = {
+  [key: string]: JsonSettingValue;
+};
+
+export type SettingsConfigFile = {
+  name: string;
+  data: JsonSettingObject;
+};
+
+export type LoadSettingsConfigsResult = {
+  ok: boolean;
+  message?: string;
+  configs: SettingsConfigFile[];
+};
+
+export type SaveSettingsConfigResult = {
+  ok: boolean;
+  message?: string;
+};
+
 declare global {
   interface Window {
     startHiddenConsole?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
     startHiddenConsoleNoRD?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
+    openSettingsWindow?: () => void;
+
+    loadSettingsConfigs?: () => Promise<LoadSettingsConfigsResult>;
+    saveSettingsConfig?: (name: string, data: JsonSettingObject) => Promise<SaveSettingsConfigResult>;
+
+    settingsWindowMinimize?: () => void;
+    settingsWindowClose?: () => void;
+    settingsWindowDrag?: () => void;
+
     mainWindowMinimize?: () => void;
     mainWindowClose?: () => void;
     mainWindowDrag?: () => void;

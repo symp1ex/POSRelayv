@@ -25,7 +25,7 @@ var (
 
 	DefaultDisplayCodecList = []string{
 		"h264",
-		"av1 (not supported)",
+		"av1",
 		"vp8",
 	}
 )

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"posrelayd-viewer/internal/config"
 	"regexp"
 	"strings"
 
@@ -33,16 +34,8 @@ func EnableWebView2Diagnostics() {
 		logger.Posrelayv.Debug("[GUI] WebView2 diagnostics already configured in environment")
 		return
 	}
-
-	exePath, err := os.Executable()
-	if err != nil {
-		logger.Posrelayv.Warnf("[GUI] Failed to resolve executable path: %v", err)
-		return
-	}
-
-	exeDir := filepath.Dir(exePath)
-
-	logDir := filepath.Join(exeDir, "logs")
+	
+	logDir := filepath.Join(config.WorkDir(), "logs")
 
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		logger.Posrelayv.Warnf("[GUI] Failed to create WebView2 log directory: %v", err)

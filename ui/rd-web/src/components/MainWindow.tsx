@@ -5,6 +5,7 @@ import mainIcon from "../assets/main.png";
 import maintabIcon from "../assets/maintab.png";
 import watchIcon from "../assets/watch.png";
 import notebookIcon from "../assets/notebook.png";
+import settingsIcon from "../assets/settings.png";
 
 type RecentConnection = {
     id: string;
@@ -190,6 +191,16 @@ export default function MainWindow() {
         animateAction("Закрытие окна недоступно");
     }
 
+    function openSettings() {
+        if (window.openSettingsWindow) {
+            window.openSettingsWindow();
+            animateAction("Открыто окно настроек");
+            return;
+        }
+
+        animateAction("Окно настроек недоступно");
+    }
+
     function dragWindow() {
         if (window.mainWindowDrag) {
             window.mainWindowDrag();
@@ -320,17 +331,33 @@ export default function MainWindow() {
                 </header>
 
                 <aside className="side-nav" aria-label="Основная навигация">
-                    <button
-                        type="button"
-                        className="side-nav__item side-nav__item--active"
-                        aria-label="Подключения"
-                        onClick={() => animateAction("Раздел подключений")}
-                    >
-                        <span className="side-nav__marker" />
-                        <span className="side-nav__icon">
-                            <img src={maintabIcon} alt="" className="ph-icon maintabIcon--side" />
-                        </span>
-                    </button>
+                    <div className="side-nav__top">
+                        <button
+                            type="button"
+                            className="side-nav__item side-nav__item--active"
+                            aria-label="Подключения"
+                            onClick={() => animateAction("Раздел подключений")}
+                        >
+                            <span className="side-nav__marker" />
+                            <span className="side-nav__icon">
+                                <img src={maintabIcon} alt="" className="ph-icon maintabIcon--side" />
+                            </span>
+                        </button>
+                    </div>
+
+                    <div className="side-nav__bottom">
+                        <button
+                            type="button"
+                            className="side-nav__item"
+                            aria-label="Настройки"
+                            onClick={openSettings}
+                        >
+                            <span className="side-nav__marker" />
+                            <span className="side-nav__icon">
+                                <img src={settingsIcon} alt="" className="ph-icon settingsIcon--side" />
+                            </span>
+                        </button>
+                    </div>
                 </aside>
                 <section className="window-card">
                     <section className="top-grid">

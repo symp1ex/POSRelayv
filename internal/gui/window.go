@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/logger"
 	"runtime"
 	"strconv"
@@ -36,6 +37,9 @@ var (
 
 	mainWindowMu sync.Mutex
 	mainWindow   webview2.WebView
+
+	settingsWindowMu sync.Mutex
+	settingsWindow   webview2.WebView
 )
 
 func startConnectionProcess(clientID string, password string, startRD bool, showConsole bool) error {
@@ -137,6 +141,148 @@ func ShowMainWindowPopup(message string) {
 	})
 }
 
+func OpenSettingsWindow(version string) {
+	settingsWindowMu.Lock()
+	existingWindow := settingsWindow
+	settingsWindowMu.Unlock()
+
+	if existingWindow != nil {
+		logger.Posrelayv.Debug("[GUI] Settings window is already open")
+		existingWindow.Dispatch(func() {
+			ShowWebViewWindow(existingWindow)
+		})
+		return
+	}
+
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		logger.Posrelayv.Debug("[GUI] Creating settings WebView window")
+
+		debugWebView := IsWebView2DebugEnabled()
+
+		w := webview2.NewWithOptions(webview2.WebViewOptions{
+			Debug:     debugWebView,
+			AutoFocus: true,
+			WindowOptions: webview2.WindowOptions{
+				Title:  "POSRelayv Settings",
+				Width:  985,
+				Height: 760,
+				Center: true,
+			},
+		})
+		if w == nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to create settings WebView window")
+			return
+		}
+
+		settingsWindowMu.Lock()
+		settingsWindow = w
+		settingsWindowMu.Unlock()
+
+		defer func() {
+			settingsWindowMu.Lock()
+			if settingsWindow == w {
+				settingsWindow = nil
+			}
+			settingsWindowMu.Unlock()
+
+			logger.Posrelayv.Debug("[GUI] Settings window reference cleared")
+		}()
+
+		defer w.Destroy()
+
+		if err := setTaskbarIcon(w); err != nil {
+			logger.Posrelayv.Warnf("[GUI] Settings taskbar icon setup failed: %v", err)
+		}
+
+		if err := w.Bind("loadSettingsConfigs", func() map[string]any {
+			configs, err := config.LoadSettingsConfigs()
+			if err != nil {
+				logger.Posrelayv.Errorf("[GUI] Failed to load settings configs: %v", err)
+				return map[string]any{
+					"ok":      false,
+					"message": err.Error(),
+					"configs": []config.SettingsConfigFile{},
+				}
+			}
+
+			return map[string]any{
+				"ok":      true,
+				"message": "",
+				"configs": configs,
+			}
+		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind loadSettingsConfigs: %v", err)
+			return
+		}
+
+		if err := w.Bind("saveSettingsConfig", func(name string, data map[string]any) map[string]any {
+			if err := config.SaveSettingsConfig(name, data); err != nil {
+				logger.Posrelayv.Errorf("[GUI] Failed to save settings config %s: %v", name, err)
+				return map[string]any{
+					"ok":      false,
+					"message": err.Error(),
+				}
+			}
+
+			return map[string]any{
+				"ok":      true,
+				"message": "Настройки сохранены",
+			}
+		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind saveSettingsConfig: %v", err)
+			return
+		}
+
+		if err := w.Bind("settingsWindowMinimize", func() {
+			MinimizeMainWindow(w)
+		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowMinimize: %v", err)
+			return
+		}
+
+		if err := w.Bind("settingsWindowClose", func() {
+			CloseMainWindow(w)
+		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowClose: %v", err)
+			return
+		}
+
+		if err := w.Bind("settingsWindowDrag", func() {
+			DragMainWindow(w)
+		}); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to bind settingsWindowDrag: %v", err)
+			return
+		}
+
+		if err := ApplyMainWindowChrome(w); err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to apply settings window chrome: %v", err)
+			return
+		}
+
+		uiURL, err := rdWebURL("")
+		if err != nil {
+			logger.Posrelayv.Errorf("[GUI] Failed to resolve settings URL: %v", err)
+			return
+		}
+
+		settingsURL := uiURL + "settings.html"
+
+		w.SetTitle("POSRelayv Settings")
+		w.SetSize(720, 520, webview2.HintMin)
+		w.SetSize(1150, 900, webview2.HintMax)
+
+		logger.Posrelayv.Infof("[GUI] Navigating settings window: url=%s", settingsURL)
+		w.Navigate(settingsURL)
+
+		w.Run()
+
+		logger.Posrelayv.Debug("[GUI] Settings window event loop stopped")
+	}()
+}
+
 func OpenMainWindow(startSession StartSessionHandler, version string) error {
 	logger.Posrelayv.Infof(
 		"POSRelayv.v%s starting...", version)
@@ -182,6 +328,13 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 
 	defer w.Destroy()
 	defer closeSessionJob()
+
+	if err := w.Bind("openSettingsWindow", func() {
+		OpenSettingsWindow(version)
+	}); err != nil {
+		logger.Posrelayv.Errorf("[GUI] Failed to bind openSettingsWindow: %v", err)
+		return err
+	}
 
 	if err := w.Bind("startHiddenConsole", func(clientID string, password string) map[string]any {
 		if err := startConnectionProcess(clientID, password, true, false); err != nil {

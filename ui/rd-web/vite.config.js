@@ -1,6 +1,7 @@
 import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
 export default defineConfig({
     plugins: [react()],
     base: "./",
@@ -14,6 +15,7 @@ export default defineConfig({
             input: {
                 main: path.resolve(__dirname, "index.html"),
                 rd: path.resolve(__dirname, "rd.html"),
+                settings: resolve(__dirname, "settings.html"),
             },
         },
     },

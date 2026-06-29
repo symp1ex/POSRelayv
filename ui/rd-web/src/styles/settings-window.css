@@ -1,0 +1,267 @@
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    overflow: hidden;
+    background: #071221;
+    color: #eef6ff;
+    font-family:
+            Inter,
+            "Segoe UI",
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            sans-serif;
+}
+
+button,
+input,
+select {
+    font: inherit;
+}
+
+.settings-window {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background:
+            radial-gradient(circle at 10% 0%, rgba(32, 86, 130, 0.28), transparent 32%),
+            linear-gradient(135deg, #071221 0%, #0b1a2d 48%, #06111f 100%);
+}
+
+.settings-titlebar {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(148, 179, 215, 0.12);
+    padding: 0 12px 0 16px;
+    user-select: none;
+}
+
+.settings-titlebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 650;
+}
+
+.settings-titlebar__brand img {
+    width: 24px;
+    height: 24px;
+}
+
+.settings-titlebar__actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.settings-titlebar__actions button {
+    width: 36px;
+    height: 30px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(238, 246, 255, 0.9);
+    cursor: pointer;
+}
+
+.settings-titlebar__actions button:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.settings-layout {
+    height: calc(100% - 48px);
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    min-height: 0;
+}
+
+.settings-sidebar {
+    border-right: 1px solid rgba(148, 179, 215, 0.12);
+    background: rgba(5, 16, 29, 0.44);
+    padding: 22px 14px;
+    overflow-y: auto;
+}
+
+.settings-sidebar__title {
+    margin: 0 8px 16px;
+    color: rgba(238, 246, 255, 0.58);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.settings-nav-item {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: rgba(238, 246, 255, 0.76);
+    text-align: left;
+    padding: 0 14px;
+    cursor: pointer;
+}
+
+.settings-nav-item:hover,
+.settings-nav-item--active {
+    border-color: rgba(255, 139, 18, 0.7);
+    background: rgba(255, 139, 18, 0.13);
+    color: #ffffff;
+}
+
+.settings-content-area {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 28px 28px 86px;
+}
+
+.settings-page-header {
+    margin-bottom: 22px;
+}
+
+.settings-page-header h1 {
+    margin: 0 0 6px;
+    font-size: 30px;
+    line-height: 1.2;
+}
+
+.settings-page-header p {
+    margin: 0;
+    color: rgba(238, 246, 255, 0.62);
+    font-size: 14px;
+}
+
+.settings-content {
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 8px;
+}
+
+.settings-block {
+    border: 1px solid rgba(148, 179, 215, 0.16);
+    border-radius: 18px;
+    background:
+            linear-gradient(135deg, rgba(18, 39, 61, 0.92), rgba(9, 23, 38, 0.82)),
+            rgba(8, 19, 33, 0.95);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    padding: 18px 20px 20px;
+}
+
+.settings-block h2 {
+    margin: 0 0 14px;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.settings-block__fields {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr);
+    gap: 14px;
+}
+
+.settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: rgba(238, 246, 255, 0.74);
+    font-size: 14px;
+}
+
+.settings-field input,
+.settings-field select {
+    width: 100%;
+    height: 42px;
+    border: 1px solid rgba(148, 179, 215, 0.18);
+    border-radius: 10px;
+    background: rgba(5, 16, 29, 0.72);
+    color: #eef6ff;
+    outline: none;
+    padding: 0 12px;
+}
+
+.settings-field input:focus,
+.settings-field select:focus {
+    border-color: rgba(255, 139, 18, 0.9);
+    box-shadow: 0 0 0 3px rgba(255, 139, 18, 0.12);
+}
+
+.settings-checkbox-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    color: rgba(238, 246, 255, 0.82);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.settings-checkbox-row input {
+    width: 18px;
+    height: 18px;
+    accent-color: #ff8b12;
+}
+
+.settings-footer {
+    position: absolute;
+    right: 28px;
+    bottom: 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.settings-secondary-button,
+.settings-save-button {
+    min-width: 132px;
+    height: 44px;
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.settings-secondary-button {
+    border: 1px solid rgba(148, 179, 215, 0.2);
+    background: rgba(5, 16, 29, 0.72);
+    color: rgba(238, 246, 255, 0.86);
+}
+
+.settings-save-button {
+    border: 1px solid rgba(255, 139, 18, 0.96);
+    background: linear-gradient(180deg, #ff991f, #ef7d00);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 14px 30px rgba(255, 139, 18, 0.22);
+}
+
+.settings-secondary-button:disabled,
+.settings-save-button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.settings-empty {
+    border: 1px solid rgba(148, 179, 215, 0.16);
+    border-radius: 18px;
+    background: rgba(9, 23, 38, 0.72);
+    padding: 22px;
+    color: rgba(238, 246, 255, 0.72);
+}
