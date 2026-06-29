@@ -249,6 +249,9 @@ func mainWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) ui
 	case wmNcHitTest:
 		return hitTestMainWindow(hwnd, lParam)
 
+	case wmClose:
+		saveMainWindowPosition(hwnd)
+
 	case wmNcDestroy:
 		oldWindowProcByID.Delete(hwnd)
 		chromeOptionsByID.Delete(hwnd)

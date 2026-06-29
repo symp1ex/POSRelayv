@@ -72,6 +72,10 @@ func StoragePath(name string) string {
 	return filepath.Join(StorageDir(), name)
 }
 
+func CachePath(name string) string {
+	return filepath.Join(CacheDir(), name)
+}
+
 func resolveWorkDir() (string, error) {
 	exePath, err := os.Executable()
 	if err != nil {

@@ -211,6 +211,8 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 		return fmt.Errorf("webview2.NewWithOptions returned nil")
 	}
 
+	restoreMainWindowPosition(w)
+
 	mainWindowMu.Lock()
 	mainWindow = w
 	// Set icon for taskbar after window creation
