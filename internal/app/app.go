@@ -170,8 +170,8 @@ func Run() {
 			SessionID: sessionID,
 			ClientID:  clientID,
 			Display: ws.DisplayConfig{
-				Quality: displayCfg.Quality,
-				Codec:   displayCfg.Codec,
+				Quality: displayCfg.Quality.Active,
+				Codec:   displayCfg.Codec.Active,
 			},
 		}); err != nil {
 			logger.Posrelayv.Errorf("Failed to send rd_start message: %v", err)
@@ -375,8 +375,8 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 				SessionID: sessionID,
 				ClientID:  authorizedClientID,
 				Display: ws.DisplayConfig{
-					Quality: displayCfg.Quality,
-					Codec:   displayCfg.Codec,
+					Quality: displayCfg.Quality.Active,
+					Codec:   displayCfg.Codec.Active,
 				},
 			}); err != nil {
 				logger.Posrelayv.Errorf("Failed to send rd_start message during connection session: %v", err)

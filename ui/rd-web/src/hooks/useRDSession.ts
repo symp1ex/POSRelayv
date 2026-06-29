@@ -901,24 +901,6 @@ export function useRDSession(sessionID: string) {
         return;
       }
 
-      if (msg.type === "rd_error" && msg.error === "encoder_failed_fallback_to_vp8") {
-        setStatus("hardware encoder failed, reconnecting with VP8 fallback");
-
-        try {
-          pc.close();
-        } catch {
-          // ignore
-        }
-
-        pcRef.current = null;
-        controlRef.current = null;
-        motionRef.current = null;
-        pendingRemoteIceRef.current = [];
-
-        await startPeer();
-        return;
-      }
-
       if (msg.type === "rd_closed") {
         releasePressedKeys();
         setRDFocus(false);

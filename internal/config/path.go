@@ -1,4 +1,4 @@
-package paths
+package config
 
 import (
 	"fmt"
@@ -16,9 +16,9 @@ var (
 	initOnce sync.Once
 	initErr  error
 
-	workDir      string
-	configsDir   string
-	notebooksDir string
+	workDir    string
+	configsDir string
+	storageDir string
 )
 
 func Init() error {
@@ -29,9 +29,9 @@ func Init() error {
 		}
 
 		configsDir = filepath.Join(workDir, "configs")
-		notebooksDir = filepath.Join(workDir, "notebooks")
+		storageDir = filepath.Join(workDir, "storage")
 
-		for _, dir := range []string{workDir, configsDir, notebooksDir} {
+		for _, dir := range []string{workDir, configsDir, storageDir} {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				initErr = fmt.Errorf("create directory %s: %w", dir, err)
 				return
@@ -52,17 +52,17 @@ func ConfigsDir() string {
 	return configsDir
 }
 
-func NotebooksDir() string {
+func StorageDir() string {
 	mustInit()
-	return notebooksDir
+	return storageDir
 }
 
 func ConfigPath(name string) string {
 	return filepath.Join(ConfigsDir(), name)
 }
 
-func NotebookPath(name string) string {
-	return filepath.Join(NotebooksDir(), name)
+func StoragePath(name string) string {
+	return filepath.Join(StorageDir(), name)
 }
 
 func resolveWorkDir() (string, error) {

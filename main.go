@@ -6,13 +6,12 @@ import (
 	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/gui"
 	"posrelayd-viewer/internal/logger"
-	"posrelayd-viewer/internal/paths"
 )
 
 func main() {
-	version := "0.4.9.2"
+	version := "0.4.9.3"
 
-	if err := paths.Init(); err != nil {
+	if err := config.Init(); err != nil {
 		log.Fatal(err)
 	}
 
