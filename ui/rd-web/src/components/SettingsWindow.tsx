@@ -354,13 +354,16 @@ export default function SettingsWindow() {
                 }}
             >
                 <div className="settings-titlebar__brand">
-                    <img src={mainIcon} alt="" />
+                    <span className="settings-titlebar__logo">
+                        <img src={mainIcon} alt="" className="main-icon ph-icon--title" />
+                    </span>
                     <span>POSRelayv</span>
                 </div>
 
                 <div className="settings-titlebar__actions">
                     <button
                         type="button"
+                        className="settings-titlebar__button"
                         aria-label="Collapse"
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={minimizeWindow}
@@ -370,6 +373,7 @@ export default function SettingsWindow() {
 
                     <button
                         type="button"
+                        className="settings-titlebar__button settings-titlebar__button--close"
                         aria-label="Closed"
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={closeWindow}

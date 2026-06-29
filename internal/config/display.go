@@ -10,7 +10,7 @@ const displayConfigName = "Display.json"
 
 const (
 	DefaultDisplayQuality   = "Auto"
-	DefaultDisplayCodec     = "h264"
+	DefaultDisplayCodec     = "H264"
 	DefaultShowRemoteCursor = true
 )
 
@@ -24,9 +24,9 @@ var (
 	}
 
 	DefaultDisplayCodecList = []string{
-		"h264",
-		"av1",
-		"vp8",
+		"H264",
+		"AV1",
+		"VP8",
 	}
 )
 
@@ -73,32 +73,34 @@ func LoadDisplayConfig() DisplayConfig {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		cfgLogger.Warnf("Display config is unavailable, recreating defaults: %v", err)
+		if os.IsNotExist(err) {
+			cfgLogger.Warnf("Display config does not exist, creating defaults: %v", err)
+		} else {
+			cfgLogger.Warnf("Display config is unavailable, recreating defaults: %v", err)
+		}
+
 		_ = SaveDisplayConfig(cfg)
 		return cfg
 	}
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		cfgLogger.Warnf("Display config is invalid, recreating defaults: %v", err)
+		cfgLogger.Warnf("Display config is unreadable, recreating defaults: %v", err)
+
 		cfg = DefaultDisplayConfig()
 		_ = SaveDisplayConfig(cfg)
+
 		return cfg
 	}
 
 	normalized, ok := NormalizeDisplayConfig(cfg)
 	if !ok {
 		cfgLogger.Warnf(
-			"Display config contains unsupported values, recreating defaults: quality=%q codec=%q",
+			"Display config contains unsupported values, using runtime defaults without rewriting file: quality=%q codec=%q",
 			cfg.VideoStream.Quality.Active,
 			cfg.VideoStream.Codec.Active,
 		)
-		normalized = DefaultDisplayConfig()
-		_ = SaveDisplayConfig(normalized)
-		return normalized
-	}
 
-	if !displayConfigEqual(normalized, cfg) {
-		_ = SaveDisplayConfig(normalized)
+		return DefaultDisplayConfig()
 	}
 
 	return normalized
@@ -144,26 +146,4 @@ func NormalizeDisplayConfig(cfg DisplayConfig) (DisplayConfig, bool) {
 	cfg.VideoStream.Codec.List = DefaultDisplayCodecList
 
 	return cfg, true
-}
-
-func displayConfigEqual(a, b DisplayConfig) bool {
-	return a.VideoStream.Quality.Active == b.VideoStream.Quality.Active &&
-		a.VideoStream.Codec.Active == b.VideoStream.Codec.Active &&
-		a.Other.ShowRemoteCursor == b.Other.ShowRemoteCursor &&
-		stringSlicesEqual(a.VideoStream.Quality.List, b.VideoStream.Quality.List) &&
-		stringSlicesEqual(a.VideoStream.Codec.List, b.VideoStream.Codec.List)
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-
-	return true
 }

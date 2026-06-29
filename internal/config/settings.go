@@ -60,7 +60,7 @@ func LoadSettingsConfigs() ([]SettingsConfigFile, error) {
 	return configs, nil
 }
 
-func SaveSettingsConfig(name string, data map[string]any) error {
+func SaveSettingsConfig(name string, data *orderedmap.OrderedMap) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("config name is empty")
@@ -68,6 +68,10 @@ func SaveSettingsConfig(name string, data map[string]any) error {
 
 	if strings.ContainsAny(name, `/\:`) || name == "." || name == ".." {
 		return fmt.Errorf("invalid config name")
+	}
+
+	if data == nil {
+		return fmt.Errorf("config data is empty")
 	}
 
 	path := filepath.Join(ConfigsDir(), name+".json")
@@ -110,9 +114,9 @@ func loadOrderedConfigForSave(path string) (*orderedmap.OrderedMap, error) {
 	return orderedData, nil
 }
 
-func mergeSettingsIntoOrderedMap(target *orderedmap.OrderedMap, source map[string]any) {
+func mergeSettingsIntoOrderedMap(target *orderedmap.OrderedMap, source *orderedmap.OrderedMap) {
 	for _, key := range target.Keys() {
-		sourceValue, ok := source[key]
+		sourceValue, ok := source.Get(key)
 		if !ok {
 			continue
 		}
@@ -120,33 +124,52 @@ func mergeSettingsIntoOrderedMap(target *orderedmap.OrderedMap, source map[strin
 		targetValue, _ := target.Get(key)
 
 		targetNested, targetIsNested := targetValue.(*orderedmap.OrderedMap)
-		sourceNested, sourceIsNested := sourceValue.(map[string]any)
+		sourceNested, sourceIsNested := sourceValue.(*orderedmap.OrderedMap)
 
 		if targetIsNested && sourceIsNested {
 			mergeSettingsIntoOrderedMap(targetNested, sourceNested)
 			continue
 		}
 
-		target.Set(key, sourceValue)
+		target.Set(key, normalizeOrderedValue(sourceValue))
 	}
 
 	appendMissingSettingsKeys(target, source)
 }
 
-func appendMissingSettingsKeys(target *orderedmap.OrderedMap, source map[string]any) {
-	missingKeys := make([]string, 0)
-
-	for key := range source {
+func appendMissingSettingsKeys(target *orderedmap.OrderedMap, source *orderedmap.OrderedMap) {
+	for _, key := range source.Keys() {
 		if _, ok := target.Get(key); ok {
 			continue
 		}
 
-		missingKeys = append(missingKeys, key)
+		sourceValue, _ := source.Get(key)
+		target.Set(key, normalizeOrderedValue(sourceValue))
 	}
+}
 
-	sort.Strings(missingKeys)
+func normalizeOrderedValue(value any) any {
+	switch typedValue := value.(type) {
+	case *orderedmap.OrderedMap:
+		normalized := orderedmap.New()
 
-	for _, key := range missingKeys {
-		target.Set(key, source[key])
+		for _, key := range typedValue.Keys() {
+			nestedValue, _ := typedValue.Get(key)
+			normalized.Set(key, normalizeOrderedValue(nestedValue))
+		}
+
+		return normalized
+
+	case []any:
+		normalized := make([]any, 0, len(typedValue))
+
+		for _, item := range typedValue {
+			normalized = append(normalized, normalizeOrderedValue(item))
+		}
+
+		return normalized
+
+	default:
+		return value
 	}
 }

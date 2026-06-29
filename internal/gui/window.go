@@ -3,6 +3,7 @@ package gui
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iancoleman/orderedmap"
 	"os"
 	"os/exec"
 	"posrelayd-viewer/internal/config"
@@ -218,7 +219,7 @@ func OpenSettingsWindow(version string) {
 			return
 		}
 
-		if err := w.Bind("saveSettingsConfig", func(name string, data map[string]any) map[string]any {
+		if err := w.Bind("saveSettingsConfig", func(name string, data *orderedmap.OrderedMap) map[string]any {
 			if err := config.SaveSettingsConfig(name, data); err != nil {
 				logger.Posrelayv.Errorf("[GUI] Failed to save settings config %s: %v", name, err)
 				return map[string]any{
