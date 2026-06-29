@@ -19,6 +19,7 @@ logs/
 userdata/
 *.json
 *.exe
+*.exe~
 *.txt
 *.csv
 tester-prv.go
