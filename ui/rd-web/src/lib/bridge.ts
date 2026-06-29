@@ -42,7 +42,7 @@ declare global {
   interface Window {
     startHiddenConsole?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
     startHiddenConsoleNoRD?: (clientID: string, password: string) => Promise<StartHiddenConsoleResult>;
-    openSettingsWindow?: () => void;
+    toggleSettingsWindow?: () => Promise<boolean>;
 
     loadSettingsConfigs?: () => Promise<LoadSettingsConfigsResult>;
     saveSettingsConfig?: (name: string, data: JsonSettingObject) => Promise<SaveSettingsConfigResult>;

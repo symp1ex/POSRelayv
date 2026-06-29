@@ -101,7 +101,7 @@ export default function SettingsWindow() {
 
     async function loadConfigs() {
         if (!window.loadSettingsConfigs) {
-            setStatusText("Bridge loadSettingsConfigs недоступен");
+            setStatusText("Bridge loadSettingsConfigs unavailable");
             setIsLoading(false);
             return;
         }
@@ -200,7 +200,7 @@ export default function SettingsWindow() {
         }
 
         if (!window.saveSettingsConfig) {
-            setStatusText("Bridge saveSettingsConfig недоступен");
+            setStatusText("Bridge saveSettingsConfig unavailable");
             return;
         }
 
@@ -411,9 +411,9 @@ export default function SettingsWindow() {
                     </div>
 
                     {isLoading ? (
-                        <div className="settings-empty">Загрузка настроек...</div>
+                        <div className="settings-empty">Loading settings...</div>
                     ) : configs.length === 0 ? (
-                        <div className="settings-empty">В папке configs нет JSON-конфигов</div>
+                        <div className="settings-empty">There are no JSON configs in the configs folder</div>
                     ) : (
                         <div className="settings-content">
                             {activeConfig ? Object.entries(activeConfig.data).map(([blockKey, blockValue]) => renderBlock(blockKey, blockValue)) : null}

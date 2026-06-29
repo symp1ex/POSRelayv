@@ -147,6 +147,50 @@ func ShowMainWindowPopup(message string) {
 	})
 }
 
+func dispatchSettingsWindowState(open bool) {
+	mainWindowMu.Lock()
+	w := mainWindow
+	mainWindowMu.Unlock()
+
+	if w == nil {
+		logger.Posrelayv.Debug("[GUI] Settings window state dispatch skipped because main window is empty")
+		return
+	}
+
+	payload, err := json.Marshal(map[string]bool{
+		"open": open,
+	})
+	if err != nil {
+		logger.Posrelayv.Warnf("[GUI] Failed to marshal settings window state payload: %v", err)
+		return
+	}
+
+	w.Dispatch(func() {
+		js := fmt.Sprintf(
+			"window.dispatchEvent(new CustomEvent('settings-window-state', { detail: %s }));",
+			string(payload),
+		)
+		w.Eval(js)
+	})
+}
+
+func ToggleSettingsWindow(version string) bool {
+	settingsWindowMu.Lock()
+	existingWindow := settingsWindow
+	settingsWindowMu.Unlock()
+
+	if existingWindow != nil {
+		logger.Posrelayv.Debug("[GUI] Closing settings window by toggle button")
+		existingWindow.Dispatch(func() {
+			CloseMainWindow(existingWindow)
+		})
+		return false
+	}
+
+	OpenSettingsWindow(version)
+	return true
+}
+
 func OpenSettingsWindow(version string) {
 	settingsWindowMu.Lock()
 	existingWindow := settingsWindow
@@ -157,6 +201,7 @@ func OpenSettingsWindow(version string) {
 		existingWindow.Dispatch(func() {
 			ShowWebViewWindow(existingWindow)
 		})
+		dispatchSettingsWindowState(true)
 		return
 	}
 
@@ -187,12 +232,20 @@ func OpenSettingsWindow(version string) {
 		settingsWindow = w
 		settingsWindowMu.Unlock()
 
+		settingsWindowMu.Lock()
+		settingsWindow = w
+		settingsWindowMu.Unlock()
+
+		dispatchSettingsWindowState(true)
+
 		defer func() {
 			settingsWindowMu.Lock()
 			if settingsWindow == w {
 				settingsWindow = nil
 			}
 			settingsWindowMu.Unlock()
+
+			dispatchSettingsWindowState(false)
 
 			logger.Posrelayv.Debug("[GUI] Settings window reference cleared")
 		}()
@@ -235,7 +288,7 @@ func OpenSettingsWindow(version string) {
 
 			return map[string]any{
 				"ok":      true,
-				"message": "Настройки сохранены",
+				"message": "Settings saved",
 			}
 		}); err != nil {
 			logger.Posrelayv.Errorf("[GUI] Failed to bind saveSettingsConfig: %v", err)
@@ -333,10 +386,10 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 	defer w.Destroy()
 	defer closeSessionJob()
 
-	if err := w.Bind("openSettingsWindow", func() {
-		OpenSettingsWindow(version)
+	if err := w.Bind("toggleSettingsWindow", func() bool {
+		return ToggleSettingsWindow(version)
 	}); err != nil {
-		logger.Posrelayv.Errorf("[GUI] Failed to bind openSettingsWindow: %v", err)
+		logger.Posrelayv.Errorf("[GUI] Failed to bind toggleSettingsWindow: %v", err)
 		return err
 	}
 

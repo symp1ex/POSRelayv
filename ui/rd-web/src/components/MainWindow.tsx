@@ -100,6 +100,7 @@ export default function MainWindow() {
     const [actionText, setActionText] = useState("Интерфейс готов");
     const [connectionMode, setConnectionMode] = useState<"withRD" | "withoutRD">("withRD");
     const [popupMessage, setPopupMessage] = useState("");
+    const [isSettingsWindowOpen, setIsSettingsWindowOpen] = useState(false);
 
     const visibleConnections = activeTab === "recent" ? recentConnections : contacts;
 
@@ -169,6 +170,19 @@ export default function MainWindow() {
         };
     }, []);
 
+    useEffect(() => {
+        function onSettingsWindowState(event: Event) {
+            const customEvent = event as CustomEvent<{ open?: boolean }>;
+            setIsSettingsWindowOpen(Boolean(customEvent.detail?.open));
+        }
+
+        window.addEventListener("settings-window-state", onSettingsWindowState);
+
+        return () => {
+            window.removeEventListener("settings-window-state", onSettingsWindowState);
+        };
+    }, []);
+
     function animateAction(text: string) {
         setActionText(text);
     }
@@ -191,10 +205,13 @@ export default function MainWindow() {
         animateAction("Закрытие окна недоступно");
     }
 
-    function openSettings() {
-        if (window.openSettingsWindow) {
-            window.openSettingsWindow();
-            animateAction("Открыто окно настроек");
+    async function toggleSettings() {
+        if (window.toggleSettingsWindow) {
+            const isOpen = await window.toggleSettingsWindow();
+
+            setIsSettingsWindowOpen(isOpen);
+            animateAction(isOpen ? "Открыто окно настроек" : "Окно настроек закрыто");
+
             return;
         }
 
@@ -348,14 +365,15 @@ export default function MainWindow() {
                     <div className="side-nav__bottom">
                         <button
                             type="button"
-                            className="side-nav__item"
-                            aria-label="Настройки"
-                            onClick={openSettings}
+                            className={isSettingsWindowOpen ? "side-nav__item side-nav__item--active" : "side-nav__item"}
+                            aria-label="Settings"
+                            aria-pressed={isSettingsWindowOpen}
+                            onClick={() => void toggleSettings()}
                         >
                             <span className="side-nav__marker" />
                             <span className="side-nav__icon">
-                                <img src={settingsIcon} alt="" className="ph-icon settingsIcon--side" />
-                            </span>
+        <img src={settingsIcon} alt="" className="ph-icon settingsIcon--side" />
+    </span>
                         </button>
                     </div>
                 </aside>

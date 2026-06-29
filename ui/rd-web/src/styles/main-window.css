@@ -300,8 +300,12 @@
     bottom: 16px;
     width: 4px;
     border-radius: 0 2px 2px 0;
-    background: var(--accent);
+    background: transparent;
     box-shadow: none;
+}
+
+.side-nav__item--active .side-nav__marker {
+    background: var(--accent);
 }
 
 .side-nav__icon {
@@ -1017,8 +1021,12 @@
     gap: 12px;
 }
 
+.side-nav__bottom {
+    transform: translateY(25px);
+}
+
 .settingsIcon--side {
-    width: 24px;
-    height: 24px;
+    width: 36px;
+    height: 36px;
     object-fit: contain;
 }
