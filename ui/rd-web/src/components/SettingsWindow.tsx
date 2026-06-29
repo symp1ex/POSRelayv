@@ -343,7 +343,7 @@ export default function SettingsWindow() {
     }
 
     return (
-        <main className="settings-window" aria-label="Settings POSRelayv">
+        <main className="settings-window" aria-label="Settings">
             <header
                 className="settings-titlebar"
                 aria-label="Window panel"

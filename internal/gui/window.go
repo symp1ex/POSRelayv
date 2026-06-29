@@ -17,6 +17,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const (
+	settingsWindowWidth  = 985
+	settingsWindowHeight = 760
+)
+
 type OutgoingSignal struct {
 	Type      string          `json:"type"`
 	SDP       string          `json:"sdp,omitempty"`
@@ -167,9 +172,9 @@ func OpenSettingsWindow(version string) {
 			Debug:     debugWebView,
 			AutoFocus: true,
 			WindowOptions: webview2.WindowOptions{
-				Title:  "POSRelayv Settings",
-				Width:  985,
-				Height: 760,
+				Title:  "Settings",
+				Width:  settingsWindowWidth,
+				Height: settingsWindowHeight,
 				Center: true,
 			},
 		})
@@ -258,7 +263,7 @@ func OpenSettingsWindow(version string) {
 			return
 		}
 
-		if err := ApplyMainWindowChrome(w); err != nil {
+		if err := ApplyFixedWindowChrome(w, settingsWindowWidth, settingsWindowHeight); err != nil {
 			logger.Posrelayv.Errorf("[GUI] Failed to apply settings window chrome: %v", err)
 			return
 		}
@@ -272,8 +277,6 @@ func OpenSettingsWindow(version string) {
 		settingsURL := uiURL + "settings.html"
 
 		w.SetTitle("POSRelayv Settings")
-		w.SetSize(720, 520, webview2.HintMin)
-		w.SetSize(1150, 900, webview2.HintMax)
 
 		logger.Posrelayv.Infof("[GUI] Navigating settings window: url=%s", settingsURL)
 		w.Navigate(settingsURL)

@@ -9,9 +9,10 @@ import (
 const displayConfigName = "Display.json"
 
 const (
-	DefaultDisplayQuality   = "Auto"
-	DefaultDisplayCodec     = "H264"
-	DefaultShowRemoteCursor = true
+	DefaultDisplayQuality         = "Auto"
+	DefaultDisplayCodec           = "H264"
+	DefaultEnableHardwareEncoding = true
+	DefaultShowRemoteCursor       = true
 )
 
 var (
@@ -36,8 +37,9 @@ type DisplayOption struct {
 }
 
 type DisplayVideoStreamConfig struct {
-	Quality DisplayOption `json:"Quality"`
-	Codec   DisplayOption `json:"Codec"`
+	Quality                DisplayOption `json:"Quality"`
+	Codec                  DisplayOption `json:"Codec"`
+	EnableHardwareEncoding bool          `json:"Enable_Hardware_Encoding"`
 }
 
 type DisplayConfig struct {
@@ -60,6 +62,7 @@ func DefaultDisplayConfig() DisplayConfig {
 				Active: DefaultDisplayCodec,
 				List:   DefaultDisplayCodecList,
 			},
+			EnableHardwareEncoding: DefaultEnableHardwareEncoding,
 		},
 		Other: DisplayOtherConfig{
 			ShowRemoteCursor: DefaultShowRemoteCursor,
@@ -120,30 +123,46 @@ func EnsureDisplayConfig() {
 }
 
 func NormalizeDisplayConfig(cfg DisplayConfig) (DisplayConfig, bool) {
-	cfg.VideoStream.Quality.Active = strings.ToLower(strings.TrimSpace(cfg.VideoStream.Quality.Active))
-	cfg.VideoStream.Codec.Active = strings.ToLower(strings.TrimSpace(cfg.VideoStream.Codec.Active))
+	quality := strings.ToLower(strings.TrimSpace(cfg.VideoStream.Quality.Active))
+	codec := strings.ToLower(strings.TrimSpace(cfg.VideoStream.Codec.Active))
 
-	if cfg.VideoStream.Quality.Active == "" {
-		cfg.VideoStream.Quality.Active = DefaultDisplayQuality
-	}
-	if cfg.VideoStream.Codec.Active == "" {
-		cfg.VideoStream.Codec.Active = DefaultDisplayCodec
+	if quality == "" {
+		quality = strings.ToLower(DefaultDisplayQuality)
 	}
 
-	switch cfg.VideoStream.Quality.Active {
+	if codec == "" {
+		codec = strings.ToLower(DefaultDisplayCodec)
+	}
+
+	switch quality {
 	case "auto", "low", "medium", "high", "ultra":
 	default:
 		return DisplayConfig{}, false
 	}
 
-	switch cfg.VideoStream.Codec.Active {
-	case "auto", "vp8", "h264", "av1":
+	switch codec {
+	case "vp8", "h264", "av1":
 	default:
 		return DisplayConfig{}, false
 	}
 
+	cfg.VideoStream.Quality.Active = quality
+	cfg.VideoStream.Codec.Active = codec
 	cfg.VideoStream.Quality.List = DefaultDisplayQualityList
 	cfg.VideoStream.Codec.List = DefaultDisplayCodecList
 
 	return cfg, true
+}
+
+func EffectiveDisplayCodec(cfg DisplayConfig) string {
+	if !cfg.VideoStream.EnableHardwareEncoding {
+		return "vp8"
+	}
+
+	codec := strings.ToLower(strings.TrimSpace(cfg.VideoStream.Codec.Active))
+	if codec == "" {
+		return strings.ToLower(DefaultDisplayCodec)
+	}
+
+	return codec
 }

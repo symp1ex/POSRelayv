@@ -157,11 +157,13 @@ func Run() {
 		}
 
 		displayCfg := config.LoadDisplayConfig()
+		displayCodec := config.EffectiveDisplayCodec(displayCfg)
 
 		logger.Posrelayv.Debugf(
-			"Sending rd_start message: display_quality=%s display_codec=%s",
+			"Sending rd_start message: display_quality=%s display_codec=%s hardware_encoding=%t",
 			displayCfg.VideoStream.Quality.Active,
-			displayCfg.VideoStream.Codec.Active,
+			displayCodec,
+			displayCfg.VideoStream.EnableHardwareEncoding,
 		)
 
 		if err := conn.WriteJSON(ws.Message{
@@ -171,7 +173,7 @@ func Run() {
 			ClientID:  clientID,
 			Display: ws.DisplayConfig{
 				Quality: displayCfg.VideoStream.Quality.Active,
-				Codec:   displayCfg.VideoStream.Codec.Active,
+				Codec:   displayCodec,
 			},
 		}); err != nil {
 			logger.Posrelayv.Errorf("Failed to send rd_start message: %v", err)
@@ -362,11 +364,13 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 
 		if startRD {
 			displayCfg := config.LoadDisplayConfig()
+			displayCodec := config.EffectiveDisplayCodec(displayCfg)
 
 			logger.Posrelayv.Debugf(
-				"Sending rd_start message for connection session: display_quality=%s display_codec=%s",
+				"Sending rd_start message for connection session: display_quality=%s display_codec=%s hardware_encoding=%t",
 				displayCfg.VideoStream.Quality.Active,
-				displayCfg.VideoStream.Codec.Active,
+				displayCodec,
+				displayCfg.VideoStream.EnableHardwareEncoding,
 			)
 
 			if err := conn.WriteJSON(ws.Message{
@@ -376,7 +380,7 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 				ClientID:  authorizedClientID,
 				Display: ws.DisplayConfig{
 					Quality: displayCfg.VideoStream.Quality.Active,
-					Codec:   displayCfg.VideoStream.Codec.Active,
+					Codec:   displayCodec,
 				},
 			}); err != nil {
 				logger.Posrelayv.Errorf("Failed to send rd_start message during connection session: %v", err)

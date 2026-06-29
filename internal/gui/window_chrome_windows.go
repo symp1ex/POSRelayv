@@ -85,6 +85,14 @@ type winRect struct {
 	Bottom int32
 }
 
+type windowChromeOptions struct {
+	Resizable bool
+	MinWidth  int32
+	MinHeight int32
+	MaxWidth  int32
+	MaxHeight int32
+}
+
 var (
 	user32Chrome = windows.NewLazySystemDLL("user32.dll")
 
@@ -101,26 +109,49 @@ var (
 	chromeOnce        sync.Once
 	chromeWndProc     uintptr
 	oldWindowProcByID sync.Map
+	chromeOptionsByID sync.Map
 )
 
 func ApplyMainWindowChrome(w webview2.WebView) error {
+	return applyWindowChrome(w, windowChromeOptions{
+		Resizable: true,
+		MinWidth:  mainWindowMinWidth,
+		MinHeight: mainWindowMinHeight,
+		MaxWidth:  mainWindowWidth,
+		MaxHeight: mainWindowHeight,
+	}, "main")
+}
+
+func ApplyFixedWindowChrome(w webview2.WebView, width int32, height int32) error {
+	return applyWindowChrome(w, windowChromeOptions{
+		Resizable: false,
+		MinWidth:  width,
+		MinHeight: height,
+		MaxWidth:  width,
+		MaxHeight: height,
+	}, "fixed")
+}
+
+func applyWindowChrome(w webview2.WebView, options windowChromeOptions, windowKind string) error {
 	chromeOnce.Do(func() {
 		chromeWndProc = syscall.NewCallback(mainWindowProc)
 	})
 
 	hwnd := uintptr(w.Window())
 	if hwnd == 0 {
-		logger.Posrelayv.Errorf("[GUI] Main window chrome cannot be applied because hwnd is empty")
-		return fmt.Errorf("main window hwnd is empty")
+		logger.Posrelayv.Errorf("[GUI] %s window chrome cannot be applied because hwnd is empty", windowKind)
+		return fmt.Errorf("%s window hwnd is empty", windowKind)
 	}
 
-	logger.Posrelayv.Debug("[GUI] Applying main window chrome")
+	logger.Posrelayv.Debugf("[GUI] Applying %s window chrome", windowKind)
 
 	oldProc, _, _ := procGetWindowLongPtr.Call(hwnd, gwlpWndProc)
 	if oldProc != 0 {
 		oldWindowProcByID.Store(hwnd, oldProc)
 		_, _, _ = procSetWindowLongPtr.Call(hwnd, gwlpWndProc, chromeWndProc)
 	}
+
+	chromeOptionsByID.Store(hwnd, options)
 
 	style, _, _ := procGetWindowLongPtr.Call(hwnd, gwlStyle)
 
@@ -143,7 +174,7 @@ func ApplyMainWindowChrome(w webview2.WebView) error {
 		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged,
 	)
 
-	logger.Posrelayv.Debug("[GUI] Main window chrome applied")
+	logger.Posrelayv.Debugf("[GUI] %s window chrome applied", windowKind)
 	return nil
 }
 
@@ -206,10 +237,13 @@ func mainWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) ui
 	switch msg {
 	case wmGetMinMaxInfo:
 		info := (*minMaxInfo)(unsafe.Pointer(lParam))
-		info.MinTrackSize.X = mainWindowMinWidth
-		info.MinTrackSize.Y = mainWindowMinHeight
-		info.MaxTrackSize.X = mainWindowWidth
-		info.MaxTrackSize.Y = mainWindowHeight
+		options := chromeOptionsForWindow(hwnd)
+
+		info.MinTrackSize.X = options.MinWidth
+		info.MinTrackSize.Y = options.MinHeight
+		info.MaxTrackSize.X = options.MaxWidth
+		info.MaxTrackSize.Y = options.MaxHeight
+
 		return 0
 
 	case wmNcHitTest:
@@ -217,6 +251,7 @@ func mainWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) ui
 
 	case wmNcDestroy:
 		oldWindowProcByID.Delete(hwnd)
+		chromeOptionsByID.Delete(hwnd)
 	}
 
 	if oldProc, ok := oldWindowProcByID.Load(hwnd); ok {
@@ -225,6 +260,20 @@ func mainWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) ui
 	}
 
 	return htClient
+}
+
+func chromeOptionsForWindow(hwnd uintptr) windowChromeOptions {
+	if value, ok := chromeOptionsByID.Load(hwnd); ok {
+		return value.(windowChromeOptions)
+	}
+
+	return windowChromeOptions{
+		Resizable: true,
+		MinWidth:  mainWindowMinWidth,
+		MinHeight: mainWindowMinHeight,
+		MaxWidth:  mainWindowWidth,
+		MaxHeight: mainWindowHeight,
+	}
 }
 
 func hitTestMainWindow(hwnd uintptr, lParam uintptr) uintptr {
@@ -242,28 +291,32 @@ func hitTestMainWindow(hwnd uintptr, lParam uintptr) uintptr {
 	const titleBarHeight int32 = 52
 	const titleBarButtonsWidth int32 = 120
 
-	left := x >= rect.Left && x < rect.Left+resizeBorder
-	right := x <= rect.Right && x > rect.Right-resizeBorder
-	top := y >= rect.Top && y < rect.Top+resizeBorder
-	bottom := y <= rect.Bottom && y > rect.Bottom-resizeBorder
+	options := chromeOptionsForWindow(hwnd)
 
-	switch {
-	case top && left:
-		return htTopLeft
-	case top && right:
-		return htTopRight
-	case bottom && left:
-		return htBottomLeft
-	case bottom && right:
-		return htBottomRight
-	case left:
-		return htLeft
-	case right:
-		return htRight
-	case top:
-		return htTop
-	case bottom:
-		return htBottom
+	if options.Resizable {
+		left := x >= rect.Left && x < rect.Left+resizeBorder
+		right := x <= rect.Right && x > rect.Right-resizeBorder
+		top := y >= rect.Top && y < rect.Top+resizeBorder
+		bottom := y <= rect.Bottom && y > rect.Bottom-resizeBorder
+
+		switch {
+		case top && left:
+			return htTopLeft
+		case top && right:
+			return htTopRight
+		case bottom && left:
+			return htBottomLeft
+		case bottom && right:
+			return htBottomRight
+		case left:
+			return htLeft
+		case right:
+			return htRight
+		case top:
+			return htTop
+		case bottom:
+			return htBottom
+		}
 	}
 
 	// Левая часть нашей кастомной панели двигает окно.
