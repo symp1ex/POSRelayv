@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	webview2 "github.com/jchv/go-webview2"
+	webview2 "github.com/symp1ex/go-webview2"
 
 	"posrelayd-viewer/internal/logger"
 )

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	webview2 "github.com/jchv/go-webview2"
+	webview2 "github.com/symp1ex/go-webview2"
 	"golang.org/x/sys/windows"
 )
 
@@ -197,21 +197,14 @@ func OpenMainWindow(startSession StartSessionHandler, version string) error {
 	debugWebView := IsWebView2DebugEnabled()
 
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     debugWebView,
-		AutoFocus: false,
-		WindowOptions: webview2.WindowOptions{
-			Title:  "POSRelayv",
-			Width:  985,
-			Height: 760,
-			Center: false,
-		},
+		Debug:         debugWebView,
+		AutoFocus:     false,
+		WindowOptions: mainWindowOptions(),
 	})
 	if w == nil {
 		logger.Posrelayv.Errorf("[GUI] Failed to create main WebView window")
 		return fmt.Errorf("webview2.NewWithOptions returned nil")
 	}
-
-	restoreMainWindowPosition(w)
 
 	mainWindowMu.Lock()
 	mainWindow = w

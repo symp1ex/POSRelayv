@@ -4,17 +4,21 @@ package gui
 
 import (
 	"encoding/json"
-	"math"
 	"os"
 	"unsafe"
 
-	webview2 "github.com/jchv/go-webview2"
+	webview2 "github.com/symp1ex/go-webview2"
 
 	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/logger"
 )
 
-const windowStateFileName = "window-state.json"
+const (
+	windowStateFileName = "window-state.json"
+
+	minWindowCoordinate = -1 << 31
+	maxWindowCoordinate = 1<<31 - 1
+)
 
 type windowStateFile struct {
 	Window windowStatePosition `json:"window"`
@@ -23,6 +27,32 @@ type windowStateFile struct {
 type windowStatePosition struct {
 	X *int `json:"x"`
 	Y *int `json:"y"`
+}
+
+func mainWindowOptions() webview2.WindowOptions {
+	options := webview2.WindowOptions{
+		Title:  "POSRelayv",
+		Width:  985,
+		Height: 760,
+		Center: false,
+	}
+
+	x, y, ok := loadMainWindowPosition()
+	if !ok {
+		logger.Posrelayv.Debug("[GUI] Main window saved position is unavailable, using default window options")
+		return options
+	}
+
+	posX := int(x)
+	posY := int(y)
+
+	options.X = &posX
+	options.Y = &posY
+	options.Center = false
+
+	logger.Posrelayv.Debugf("[GUI] Main window position loaded for native creation: x=%d y=%d", x, y)
+
+	return options
 }
 
 func loadMainWindowPosition() (int32, int32, bool) {
@@ -47,10 +77,7 @@ func loadMainWindowPosition() (int32, int32, bool) {
 		return 0, 0, false
 	}
 
-	if *state.Window.X < math.MinInt32 ||
-		*state.Window.X > math.MaxInt32 ||
-		*state.Window.Y < math.MinInt32 ||
-		*state.Window.Y > math.MaxInt32 {
+	if !isValidWindowCoordinate(*state.Window.X) || !isValidWindowCoordinate(*state.Window.Y) {
 		logger.Posrelayv.Warnf(
 			"[GUI] Window state coordinates are out of int32 range: x=%d y=%d",
 			*state.Window.X,
@@ -62,30 +89,8 @@ func loadMainWindowPosition() (int32, int32, bool) {
 	return int32(*state.Window.X), int32(*state.Window.Y), true
 }
 
-func restoreMainWindowPosition(w webview2.WebView) {
-	hwnd := uintptr(w.Window())
-	if hwnd == 0 {
-		logger.Posrelayv.Debug("[GUI] Main window position restore skipped because hwnd is empty")
-		return
-	}
-
-	x, y, ok := loadMainWindowPosition()
-	if !ok {
-		logger.Posrelayv.Debug("[GUI] Main window position restore skipped because saved state is unavailable")
-		return
-	}
-
-	_, _, _ = procSetWindowPos.Call(
-		hwnd,
-		0,
-		uintptr(int(x)),
-		uintptr(int(y)),
-		0,
-		0,
-		swpNoSize|swpNoZOrder|swpNoActivate,
-	)
-
-	logger.Posrelayv.Debugf("[GUI] Main window position restored: x=%d y=%d", x, y)
+func isValidWindowCoordinate(value int) bool {
+	return value >= minWindowCoordinate && value <= maxWindowCoordinate
 }
 
 func saveMainWindowPosition(hwnd uintptr) {
