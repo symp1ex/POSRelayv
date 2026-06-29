@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"posrelayd-viewer/internal/paths"
 	"sync"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	logDir     = "logs"
+	logDir     = filepath.Join(paths.WorkDir(), "logs")
 	retainDays = config.Cfg.Logs.StoreDays
 	logLevel   = config.Cfg.Logs.LogLevel
 )

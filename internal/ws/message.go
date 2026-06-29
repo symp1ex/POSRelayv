@@ -2,6 +2,11 @@ package ws
 
 import "encoding/json"
 
+type DisplayConfig struct {
+	Quality string `json:"quality,omitempty"`
+	Codec   string `json:"codec,omitempty"`
+}
+
 type Message struct {
 	Type       string                 `json:"type"`
 	ClientID   string                 `json:"client_id,omitempty"`
@@ -19,6 +24,8 @@ type Message struct {
 	Password   string                 `json:"password,omitempty"`
 	Error      string                 `json:"error,omitempty"`
 	ApiKey     string                 `json:"api_key,omitempty"`
+
+	Display DisplayConfig `json:"display,omitempty"`
 
 	SDP       string          `json:"sdp,omitempty"`
 	Candidate json.RawMessage `json:"candidate,omitempty"`

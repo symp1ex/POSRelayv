@@ -2,14 +2,22 @@ package main
 
 import (
 	"log"
-
 	"posrelayd-viewer/internal/app"
+	"posrelayd-viewer/internal/config"
 	"posrelayd-viewer/internal/gui"
 	"posrelayd-viewer/internal/logger"
+	"posrelayd-viewer/internal/paths"
 )
 
 func main() {
-	version := "0.4.9.0"
+	version := "0.4.9.2"
+
+	if err := paths.Init(); err != nil {
+		log.Fatal(err)
+	}
+
+	config.SetLogger(logger.Posrelayv)
+
 	gui.EnableWebView2Diagnostics()
 
 	if app.HandleStartupOptions() {

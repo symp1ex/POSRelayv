@@ -156,12 +156,23 @@ func Run() {
 			continue
 		}
 
-		logger.Posrelayv.Debug("Sending rd_start message")
+		displayCfg := config.LoadDisplayConfig()
+
+		logger.Posrelayv.Debugf(
+			"Sending rd_start message: display_quality=%s display_codec=%s",
+			displayCfg.Quality,
+			displayCfg.Codec,
+		)
+
 		if err := conn.WriteJSON(ws.Message{
 			Type:      "rd_start",
 			ID:        sessionID,
 			SessionID: sessionID,
 			ClientID:  clientID,
+			Display: ws.DisplayConfig{
+				Quality: displayCfg.Quality,
+				Codec:   displayCfg.Codec,
+			},
 		}); err != nil {
 			logger.Posrelayv.Errorf("Failed to send rd_start message: %v", err)
 			fmt.Println("Не удалось отправить rd_start:", err)
@@ -350,12 +361,23 @@ func RunConnectionSession(clientID string, password string, startRD bool, showCo
 		logger.Posrelayv.Info("Register message sent for connection session")
 
 		if startRD {
-			logger.Posrelayv.Debug("Sending rd_start message for connection session")
+			displayCfg := config.LoadDisplayConfig()
+
+			logger.Posrelayv.Debugf(
+				"Sending rd_start message for connection session: display_quality=%s display_codec=%s",
+				displayCfg.Quality,
+				displayCfg.Codec,
+			)
+
 			if err := conn.WriteJSON(ws.Message{
 				Type:      "rd_start",
 				ID:        sessionID,
 				SessionID: sessionID,
 				ClientID:  authorizedClientID,
+				Display: ws.DisplayConfig{
+					Quality: displayCfg.Quality,
+					Codec:   displayCfg.Codec,
+				},
 			}); err != nil {
 				logger.Posrelayv.Errorf("Failed to send rd_start message during connection session: %v", err)
 				fmt.Println("Failed to send rd_start message during connection session:", err)

@@ -16,6 +16,7 @@ internal/gui/web/dist/
 
 .idea/
 logs/
+userdata/
 *.json
 *.exe
 *.txt
