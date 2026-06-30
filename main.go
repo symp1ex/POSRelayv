@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	version := "0.4.13.0"
+	version := "0.5.0.1"
 
 	if err := config.Init(); err != nil {
 		log.Fatal(err)

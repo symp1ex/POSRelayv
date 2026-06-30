@@ -11,11 +11,11 @@ import {
 
 const MAX_CLIPBOARD_TEXT_BYTES = 60 * 1024;
 
-const CONTROL_BUFFERED_LOW_BYTES = 64 * 1024;
-const CONTROL_BUFFERED_HIGH_BYTES = 256 * 1024;
+const CONTROL_BUFFERED_LOW_BYTES = 1024;
+const CONTROL_BUFFERED_HIGH_BYTES = 4 * 1024;
 
-const MOTION_BUFFERED_LOW_BYTES = 8 * 1024;
-const MOTION_BUFFERED_HIGH_BYTES = 32 * 1024;
+const MOTION_BUFFERED_LOW_BYTES = 512;
+const MOTION_BUFFERED_HIGH_BYTES = 1024;
 
 export function useRDSession(sessionID: string) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -37,8 +37,6 @@ export function useRDSession(sessionID: string) {
 
   const pressedMouseButtonsRef = useRef(new Set<number>());
   const activePointerIdRef = useRef<number | null>(null);
-  const pendingDragMoveRef = useRef<{ x: number; y: number } | null>(null);
-  const dragMoveRAFRef = useRef<number | null>(null);
 
 // Последний revision, записанный/прочитанный на стороне viewer.
 // Используем только для защиты от повторной записи в host clipboard,
@@ -48,9 +46,6 @@ export function useRDSession(sessionID: string) {
 // Разрешаем принимать clipboard_sync от агента только как ответ
 // на пользовательский copy/cut внутри RD-окна.
   const pendingRemoteClipboardPullRef = useRef(0);
-
-  const hoverConfirmTimerRef = useRef<number | null>(null);
-  const lastHoverControlSentAtRef = useRef(0);
 
   const rdFocusedRef = useRef(false);
   const rdWindowActiveRef = useRef(!document.hidden && document.hasFocus());
@@ -203,12 +198,8 @@ export function useRDSession(sessionID: string) {
         return false;
       }
 
-      if (
-          controlQueueRef.current.length > 0 ||
-          control.bufferedAmount >= CONTROL_BUFFERED_HIGH_BYTES
-      ) {
-        // Binary control events are hot path and should not be converted to JSON queue.
-        // For move-like events we drop/retry latest elsewhere; for click/key/wheel browser will emit next state.
+      if (control.bufferedAmount >= CONTROL_BUFFERED_HIGH_BYTES) {
+        // Binary control events are hot path; stale input is worse than skipped input.
         return false;
       }
 
@@ -248,51 +239,6 @@ export function useRDSession(sessionID: string) {
       }
 
       mouseMoveRAFRef.current = window.requestAnimationFrame(flushLatestMouseMove);
-    }
-
-    function scheduleHoverMove(point: { x: number; y: number }) {
-      scheduleMouseMove(point);
-
-      const nowMs = performance.now();
-
-      if (nowMs - lastHoverControlSentAtRef.current > 100) {
-        lastHoverControlSentAtRef.current = nowMs;
-
-        sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
-      }
-
-      if (hoverConfirmTimerRef.current !== null) {
-        window.clearTimeout(hoverConfirmTimerRef.current);
-      }
-
-      hoverConfirmTimerRef.current = window.setTimeout(() => {
-        hoverConfirmTimerRef.current = null;
-
-        sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
-      }, 80);
-    }
-
-    function flushLatestDragMove() {
-      dragMoveRAFRef.current = null;
-
-      const point = pendingDragMoveRef.current;
-      if (!point) {
-        return;
-      }
-
-      pendingDragMoveRef.current = null;
-
-      sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
-    }
-
-    function scheduleDragMove(point: { x: number; y: number }) {
-      pendingDragMoveRef.current = point;
-
-      if (dragMoveRAFRef.current !== null) {
-        return;
-      }
-
-      dragMoveRAFRef.current = window.requestAnimationFrame(flushLatestDragMove);
     }
 
     function isDragging() {
@@ -352,12 +298,6 @@ export function useRDSession(sessionID: string) {
       pressedKeysRef.current.clear();
       pressedMouseButtonsRef.current.clear();
       activePointerIdRef.current = null;
-      pendingDragMoveRef.current = null;
-
-      if (dragMoveRAFRef.current !== null) {
-        window.cancelAnimationFrame(dragMoveRAFRef.current);
-        dragMoveRAFRef.current = null;
-      }
     }
 
     function setRDFocus(focused: boolean) {
@@ -648,15 +588,6 @@ export function useRDSession(sessionID: string) {
 
       event.preventDefault();
 
-      if (dragMoveRAFRef.current !== null) {
-        window.cancelAnimationFrame(dragMoveRAFRef.current);
-        dragMoveRAFRef.current = null;
-      }
-
-      pendingDragMoveRef.current = null;
-
-      sendBinaryControl(mouseMoveEncoderRef.current.encode(point.x, point.y));
-
       sendBinaryControl(
           encodeMouseButton(BinaryInputKind.MouseUp, point.x, point.y, event.button),
       );
@@ -697,15 +628,7 @@ export function useRDSession(sessionID: string) {
 
       event.preventDefault();
 
-      if (dragging) {
-        scheduleDragMove({
-          x: point.x,
-          y: point.y,
-        });
-        return;
-      }
-
-      scheduleHoverMove({
+      scheduleMouseMove({
         x: point.x,
         y: point.y,
       });
@@ -1060,23 +983,12 @@ export function useRDSession(sessionID: string) {
       pendingRemoteIceRef.current = [];
       controlQueueRef.current = [];
       pendingMouseMoveRef.current = null;
-      pendingDragMoveRef.current = null;
       pressedMouseButtonsRef.current.clear();
       activePointerIdRef.current = null;
 
       if (mouseMoveRAFRef.current !== null) {
         window.cancelAnimationFrame(mouseMoveRAFRef.current);
         mouseMoveRAFRef.current = null;
-      }
-
-      if (dragMoveRAFRef.current !== null) {
-        window.cancelAnimationFrame(dragMoveRAFRef.current);
-        dragMoveRAFRef.current = null;
-      }
-
-      if (hoverConfirmTimerRef.current !== null) {
-        window.clearTimeout(hoverConfirmTimerRef.current);
-        hoverConfirmTimerRef.current = null;
       }
 
       window.clearInterval(reportVideoSizeInterval);
