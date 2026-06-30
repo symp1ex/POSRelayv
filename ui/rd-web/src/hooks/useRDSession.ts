@@ -50,11 +50,7 @@ export function useRDSession(sessionID: string) {
   const rdFocusedRef = useRef(false);
   const rdWindowActiveRef = useRef(!document.hidden && document.hasFocus());
   const pressedKeysRef = useRef(new Set<string>());
-  const browserOriginRef = useRef<string>(
-    globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `browser-${Math.random().toString(16).slice(2)}-${Date.now()}`,
-  );
+  const browserOriginRef = useRef<string>("");
 
   const [statusText, setStatusText] = useState<string>(`session_id: ${sessionID} | connecting...`);
 
@@ -66,8 +62,18 @@ export function useRDSession(sessionID: string) {
 
     const video: HTMLVideoElement = videoElement;
     const previousVideoCursor = video.style.cursor;
+    const pressedMouseButtons = pressedMouseButtonsRef.current;
 
     let disposed = false;
+    let statsInterval: number | null = null;
+    let previousInboundStats: {
+      jitterBufferDelay: number;
+      jitterBufferEmittedCount: number;
+      framesDecoded: number;
+      freezeCount: number;
+      packetsLost: number;
+    } | null = null;
+    let lastCandidatePairKey = "";
 
     function setStatus(text: string) {
       if (!disposed) {
@@ -77,6 +83,174 @@ export function useRDSession(sessionID: string) {
 
     function now() {
       return Date.now();
+    }
+
+    function createBrowserOrigin() {
+      return globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `browser-${Math.random().toString(16).slice(2)}-${Date.now()}`;
+    }
+
+    if (browserOriginRef.current === "") {
+      browserOriginRef.current = createBrowserOrigin();
+    }
+
+    function statNumber(stat: Record<string, unknown> | null, key: string) {
+      if (!stat) {
+        return 0;
+      }
+
+      const value = stat[key];
+      return typeof value === "number" ? value : 0;
+    }
+
+    function statString(stat: Record<string, unknown> | null, key: string) {
+      if (!stat) {
+        return "";
+      }
+
+      const value = stat[key];
+      return typeof value === "string" ? value : "";
+    }
+
+    function setLowLatencyReceiverTarget(receiver: RTCRtpReceiver | null | undefined) {
+      if (!receiver) {
+        return;
+      }
+
+      const lowLatencyReceiver = receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
+      if ("jitterBufferTarget" in lowLatencyReceiver) {
+        lowLatencyReceiver.jitterBufferTarget = 0.05;
+      }
+    }
+
+    function candidateSummary(candidate: Record<string, unknown> | null) {
+      if (!candidate) {
+        return "unknown";
+      }
+
+      const protocol = statString(candidate, "protocol") || "transport";
+      const type = statString(candidate, "candidateType") || "candidate";
+      const address =
+        statString(candidate, "address") ||
+        statString(candidate, "ip") ||
+        statString(candidate, "relayProtocol") ||
+        "address";
+      const port = statNumber(candidate, "port");
+
+      return `${protocol}/${type} ${address}${port > 0 ? `:${port}` : ""}`;
+    }
+
+    function startStatsReporting(pc: RTCPeerConnection) {
+      if (statsInterval !== null) {
+        window.clearInterval(statsInterval);
+      }
+
+      statsInterval = window.setInterval(() => {
+        void pc.getStats().then((report) => {
+          let inboundVideo: (RTCStats & Record<string, unknown>) | null = null;
+          let selectedPair: (RTCStats & Record<string, unknown>) | null = null;
+          const localCandidates = new Map<string, RTCStats & Record<string, unknown>>();
+          const remoteCandidates = new Map<string, RTCStats & Record<string, unknown>>();
+
+          report.forEach((stat) => {
+            const item = stat as RTCStats & Record<string, unknown>;
+
+            if (
+              item.type === "inbound-rtp" &&
+              statString(item, "kind") === "video"
+            ) {
+              inboundVideo = item;
+              return;
+            }
+
+            if (item.type === "local-candidate") {
+              localCandidates.set(item.id, item);
+              return;
+            }
+
+            if (item.type === "remote-candidate") {
+              remoteCandidates.set(item.id, item);
+              return;
+            }
+
+            if (
+              item.type === "candidate-pair" &&
+              statString(item, "state") === "succeeded" &&
+              (item.nominated === true || item.selected === true)
+            ) {
+              selectedPair = item;
+            }
+          });
+
+          const pair = selectedPair as (RTCStats & Record<string, unknown>) | null;
+          if (pair !== null) {
+            const local = localCandidates.get(statString(pair, "localCandidateId")) ?? null;
+            const remote = remoteCandidates.get(statString(pair, "remoteCandidateId")) ?? null;
+            const pairKey = `${pair.id}|${candidateSummary(local)}|${candidateSummary(remote)}`;
+
+            if (pairKey !== lastCandidatePairKey) {
+              lastCandidatePairKey = pairKey;
+              console.info("[RD] selected ICE pair", {
+                local: candidateSummary(local),
+                remote: candidateSummary(remote),
+                currentRoundTripTimeMs: Math.round(statNumber(pair, "currentRoundTripTime") * 1000),
+                availableOutgoingBitrate: statNumber(pair, "availableOutgoingBitrate"),
+              });
+            }
+          }
+
+          if (!inboundVideo) {
+            return;
+          }
+
+          const current = {
+            jitterBufferDelay: statNumber(inboundVideo, "jitterBufferDelay"),
+            jitterBufferEmittedCount: statNumber(inboundVideo, "jitterBufferEmittedCount"),
+            framesDecoded: statNumber(inboundVideo, "framesDecoded"),
+            freezeCount: statNumber(inboundVideo, "freezeCount"),
+            packetsLost: statNumber(inboundVideo, "packetsLost"),
+          };
+
+          let avgJitterBufferMs = 0;
+          if (previousInboundStats) {
+            const delayDelta = current.jitterBufferDelay - previousInboundStats.jitterBufferDelay;
+            const emittedDelta =
+              current.jitterBufferEmittedCount - previousInboundStats.jitterBufferEmittedCount;
+
+            if (delayDelta >= 0 && emittedDelta > 0) {
+              avgJitterBufferMs = (delayDelta / emittedDelta) * 1000;
+            }
+          }
+
+          const freezeDelta = previousInboundStats
+            ? current.freezeCount - previousInboundStats.freezeCount
+            : 0;
+          const lostDelta = previousInboundStats
+            ? current.packetsLost - previousInboundStats.packetsLost
+            : 0;
+
+          previousInboundStats = current;
+
+          console.debug("[RD] video stats", {
+            avgJitterBufferMs: Math.round(avgJitterBufferMs),
+            framesDecoded: current.framesDecoded,
+            freezeDelta,
+            lostDelta,
+            packetsLost: current.packetsLost,
+            jitter: statNumber(inboundVideo, "jitter"),
+          });
+
+          if (avgJitterBufferMs >= 120 || freezeDelta > 0) {
+            setStatus(
+              `video latency: jitter_buffer=${Math.round(avgJitterBufferMs)}ms freezes=${Math.max(0, freezeDelta)}`,
+            );
+          }
+        }).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.debug("[RD] getStats failed", message);
+        });
+      }, 2000);
     }
 
     async function sha256Text(text: string) {
@@ -112,7 +286,7 @@ export function useRDSession(sessionID: string) {
     }
 
     function normalizeClipboardText(text: unknown) {
-      const safe = String(text ?? "").replace(/\u0000/g, "");
+      const safe = String(text ?? "").replaceAll(String.fromCharCode(0), "");
       const size = utf8Bytes(safe);
       if (size > MAX_CLIPBOARD_TEXT_BYTES) {
         throw new Error(`clipboard payload too large: ${size} bytes`);
@@ -296,7 +470,7 @@ export function useRDSession(sessionID: string) {
       }
 
       pressedKeysRef.current.clear();
-      pressedMouseButtonsRef.current.clear();
+      pressedMouseButtons.clear();
       activePointerIdRef.current = null;
     }
 
@@ -376,19 +550,6 @@ export function useRDSession(sessionID: string) {
           event.clientY >= rect.top &&
           event.clientY <= rect.bottom,
       };
-    }
-
-    function buttonName(button: number) {
-      switch (button) {
-        case 0:
-          return "left";
-        case 1:
-          return "middle";
-        case 2:
-          return "right";
-        default:
-          return "left";
-      }
     }
 
     async function readLocalClipboardText() {
@@ -837,6 +998,7 @@ export function useRDSession(sessionID: string) {
     async function startPeer() {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
+      startStatsReporting(pc);
 
       const control = pc.createDataChannel("control", {
         ordered: true,
@@ -917,7 +1079,8 @@ export function useRDSession(sessionID: string) {
         motionBackpressureRef.current = false;
       };
 
-      pc.addTransceiver("video", { direction: "recvonly" });
+      const videoTransceiver = pc.addTransceiver("video", { direction: "recvonly" });
+      setLowLatencyReceiverTarget(videoTransceiver.receiver);
 
       pc.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -940,11 +1103,17 @@ export function useRDSession(sessionID: string) {
       };
 
       pc.ontrack = (event) => {
+        setLowLatencyReceiverTarget(event.receiver);
+
         if (event.streams && event.streams[0]) {
           video.srcObject = event.streams[0];
         } else {
           video.srcObject = new MediaStream([event.track]);
         }
+        void video.play().catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.debug("[RD] video play failed", message);
+        });
         setStatus("video track received");
       };
 
@@ -983,7 +1152,7 @@ export function useRDSession(sessionID: string) {
       pendingRemoteIceRef.current = [];
       controlQueueRef.current = [];
       pendingMouseMoveRef.current = null;
-      pressedMouseButtonsRef.current.clear();
+      pressedMouseButtons.clear();
       activePointerIdRef.current = null;
 
       if (mouseMoveRAFRef.current !== null) {
@@ -992,6 +1161,10 @@ export function useRDSession(sessionID: string) {
       }
 
       window.clearInterval(reportVideoSizeInterval);
+      if (statsInterval !== null) {
+        window.clearInterval(statsInterval);
+        statsInterval = null;
+      }
       releasePressedKeys();
 
       try {

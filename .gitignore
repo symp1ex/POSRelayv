@@ -17,6 +17,8 @@ internal/gui/web/dist/
 .idea/
 logs/
 userdata/
+.codegraph/
+.skills/
 *.json
 *.exe
 *.exe~
