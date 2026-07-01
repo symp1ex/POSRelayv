@@ -120,7 +120,7 @@ export function useRDSession(sessionID: string) {
 
       const lowLatencyReceiver = receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
       if ("jitterBufferTarget" in lowLatencyReceiver) {
-        lowLatencyReceiver.jitterBufferTarget = 0.05;
+        lowLatencyReceiver.jitterBufferTarget = 0.03;
       }
     }
 

@@ -9,10 +9,11 @@ import (
 const displayConfigName = "Display.json"
 
 const (
-	DefaultDisplayQuality         = "Auto"
+	DefaultDisplayQuality         = "Medium"
 	DefaultDisplayCodec           = "H264"
 	DefaultEnableHardwareEncoding = true
-	DefaultShowRemoteCursor       = true
+	DefaultForceKeyframeOnPLI     = false
+	DefaultShowRemoteCursor       = false
 )
 
 var (
@@ -40,8 +41,8 @@ type DisplayVideoStreamConfig struct {
 	Quality                DisplayOption `json:"Quality"`
 	Codec                  DisplayOption `json:"Codec"`
 	EnableHardwareEncoding bool          `json:"Enable_Hardware_Encoding"`
+	ForceKeyframeOnPLI     bool          `json:"Force_keyframe_on_PLI_(beta)"`
 }
-
 type DisplayConfig struct {
 	VideoStream DisplayVideoStreamConfig `json:"Video_Stream"`
 	Other       DisplayOtherConfig       `json:"Other"`
@@ -63,6 +64,7 @@ func DefaultDisplayConfig() DisplayConfig {
 				List:   DefaultDisplayCodecList,
 			},
 			EnableHardwareEncoding: DefaultEnableHardwareEncoding,
+			ForceKeyframeOnPLI:     DefaultForceKeyframeOnPLI,
 		},
 		Other: DisplayOtherConfig{
 			ShowRemoteCursor: DefaultShowRemoteCursor,

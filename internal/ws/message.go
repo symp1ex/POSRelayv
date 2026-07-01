@@ -3,8 +3,9 @@ package ws
 import "encoding/json"
 
 type DisplayConfig struct {
-	Quality string `json:"quality,omitempty"`
-	Codec   string `json:"codec,omitempty"`
+	Quality            string `json:"quality,omitempty"`
+	Codec              string `json:"codec,omitempty"`
+	ForceKeyframeOnPLI bool   `json:"force_keyframe_on_pli,omitempty"`
 }
 
 type Message struct {
