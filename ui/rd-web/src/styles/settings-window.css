@@ -326,6 +326,7 @@ button {
 
 .settings-field option,
 .settings-block option {
+    font-size: 14px;
     background: #101722;
     color: var(--text-main);
 }
