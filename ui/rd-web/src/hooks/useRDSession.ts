@@ -69,11 +69,19 @@ export function useRDSession(sessionID: string) {
     let previousInboundStats: {
       jitterBufferDelay: number;
       jitterBufferEmittedCount: number;
+      jitterBufferTargetDelay: number;
+      jitterBufferMinimumDelay: number;
+      framesReceived: number;
       framesDecoded: number;
+      framesDropped: number;
+      keyFramesDecoded: number;
+      bytesReceived: number;
       freezeCount: number;
       packetsLost: number;
+      totalProcessingDelay: number;
     } | null = null;
     let lastCandidatePairKey = "";
+    let lowLatencyReceiverLogged = false;
 
     function setStatus(text: string) {
       if (!disposed) {
@@ -121,6 +129,18 @@ export function useRDSession(sessionID: string) {
       const lowLatencyReceiver = receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
       if ("jitterBufferTarget" in lowLatencyReceiver) {
         lowLatencyReceiver.jitterBufferTarget = 0.03;
+        if (!lowLatencyReceiverLogged) {
+          lowLatencyReceiverLogged = true;
+          console.info("[RD] receiver jitterBufferTarget requested", {
+            seconds: lowLatencyReceiver.jitterBufferTarget,
+          });
+        }
+        return;
+      }
+
+      if (!lowLatencyReceiverLogged) {
+        lowLatencyReceiverLogged = true;
+        console.info("[RD] receiver jitterBufferTarget unsupported");
       }
     }
 
@@ -207,12 +227,22 @@ export function useRDSession(sessionID: string) {
           const current = {
             jitterBufferDelay: statNumber(inboundVideo, "jitterBufferDelay"),
             jitterBufferEmittedCount: statNumber(inboundVideo, "jitterBufferEmittedCount"),
+            jitterBufferTargetDelay: statNumber(inboundVideo, "jitterBufferTargetDelay"),
+            jitterBufferMinimumDelay: statNumber(inboundVideo, "jitterBufferMinimumDelay"),
+            framesReceived: statNumber(inboundVideo, "framesReceived"),
             framesDecoded: statNumber(inboundVideo, "framesDecoded"),
+            framesDropped: statNumber(inboundVideo, "framesDropped"),
+            keyFramesDecoded: statNumber(inboundVideo, "keyFramesDecoded"),
+            bytesReceived: statNumber(inboundVideo, "bytesReceived"),
             freezeCount: statNumber(inboundVideo, "freezeCount"),
             packetsLost: statNumber(inboundVideo, "packetsLost"),
+            totalProcessingDelay: statNumber(inboundVideo, "totalProcessingDelay"),
           };
 
           let avgJitterBufferMs = 0;
+          let avgJitterTargetMs = 0;
+          let avgJitterMinimumMs = 0;
+          let avgProcessingMs = 0;
           if (previousInboundStats) {
             const delayDelta = current.jitterBufferDelay - previousInboundStats.jitterBufferDelay;
             const emittedDelta =
@@ -220,6 +250,25 @@ export function useRDSession(sessionID: string) {
 
             if (delayDelta >= 0 && emittedDelta > 0) {
               avgJitterBufferMs = (delayDelta / emittedDelta) * 1000;
+            }
+
+            const targetDelayDelta =
+              current.jitterBufferTargetDelay - previousInboundStats.jitterBufferTargetDelay;
+            if (targetDelayDelta >= 0 && emittedDelta > 0) {
+              avgJitterTargetMs = (targetDelayDelta / emittedDelta) * 1000;
+            }
+
+            const minimumDelayDelta =
+              current.jitterBufferMinimumDelay - previousInboundStats.jitterBufferMinimumDelay;
+            if (minimumDelayDelta >= 0 && emittedDelta > 0) {
+              avgJitterMinimumMs = (minimumDelayDelta / emittedDelta) * 1000;
+            }
+
+            const processingDelayDelta =
+              current.totalProcessingDelay - previousInboundStats.totalProcessingDelay;
+            const decodedDelta = current.framesDecoded - previousInboundStats.framesDecoded;
+            if (processingDelayDelta >= 0 && decodedDelta > 0) {
+              avgProcessingMs = (processingDelayDelta / decodedDelta) * 1000;
             }
           }
 
@@ -229,12 +278,22 @@ export function useRDSession(sessionID: string) {
           const lostDelta = previousInboundStats
             ? current.packetsLost - previousInboundStats.packetsLost
             : 0;
+          const droppedDelta = previousInboundStats
+            ? current.framesDropped - previousInboundStats.framesDropped
+            : 0;
 
           previousInboundStats = current;
 
           console.debug("[RD] video stats", {
             avgJitterBufferMs: Math.round(avgJitterBufferMs),
+            avgJitterTargetMs: Math.round(avgJitterTargetMs),
+            avgJitterMinimumMs: Math.round(avgJitterMinimumMs),
+            avgProcessingMs: Math.round(avgProcessingMs),
+            framesReceived: current.framesReceived,
             framesDecoded: current.framesDecoded,
+            keyFramesDecoded: current.keyFramesDecoded,
+            bytesReceived: current.bytesReceived,
+            droppedDelta,
             freezeDelta,
             lostDelta,
             packetsLost: current.packetsLost,
@@ -243,7 +302,7 @@ export function useRDSession(sessionID: string) {
 
           if (avgJitterBufferMs >= 120 || freezeDelta > 0) {
             setStatus(
-              `video latency: jitter_buffer=${Math.round(avgJitterBufferMs)}ms freezes=${Math.max(0, freezeDelta)}`,
+              `video latency: jitter_buffer=${Math.round(avgJitterBufferMs)}ms target=${Math.round(avgJitterTargetMs)}ms freezes=${Math.max(0, freezeDelta)}`,
             );
           }
         }).catch((error: unknown) => {
