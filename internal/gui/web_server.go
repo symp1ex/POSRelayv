@@ -32,6 +32,10 @@ type rdWebHandler struct {
 }
 
 func rdWebURL(sessionID string) (string, error) {
+	return rdWebURLWithOptions(sessionID, false)
+}
+
+func rdWebURLWithOptions(sessionID string, stretch bool) (string, error) {
 	base, err := ensureRDWebServer()
 	if err != nil {
 		return "", err
@@ -41,7 +45,14 @@ func rdWebURL(sessionID string) (string, error) {
 		return base, nil
 	}
 
-	return base + "rd.html?session_id=" + url.QueryEscape(sessionID), nil
+	values := url.Values{}
+	values.Set("session_id", sessionID)
+
+	if stretch {
+		values.Set("stretch", "1")
+	}
+
+	return base + "rd.html?" + values.Encode(), nil
 }
 
 func ensureRDWebServer() (string, error) {

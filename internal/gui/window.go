@@ -392,16 +392,21 @@ func OpenRDWindow(
 
 		if err := w.Bind("rdVideoMeta", func(width, height int) {
 			if width <= 0 || height <= 0 {
-				logger.Posrelayv.Debugf("[GUI] Ignoring invalid RD video metadata: session_id=%s width=%d height=%d", sessionID, width, height)
+				logger.Posrelayv.Debugf(
+					"[GUI] Ignoring invalid RD video metadata: session_id=%s width=%d height=%d",
+					sessionID,
+					width,
+					height,
+				)
 				return
 			}
 
-			fw, fh := fitWindow(width, height, 1600, 1000)
-			logger.Posrelayv.Debugf("[GUI] Resizing RD window from video metadata: session_id=%s source=%dx%d window=%dx%d", sessionID, width, height, fw, fh)
-
-			w.Dispatch(func() {
-				w.SetSize(fw, fh, webview2.HintNone)
-			})
+			logger.Posrelayv.Debugf(
+				"[GUI] RD video metadata received: session_id=%s source=%dx%d",
+				sessionID,
+				width,
+				height,
+			)
 		}); err != nil {
 			logger.Posrelayv.Errorf("[GUI] Failed to bind rdVideoMeta: session_id=%s error=%v", sessionID, err)
 			ready <- err
@@ -433,7 +438,9 @@ func OpenRDWindow(
 			return
 		}
 
-		uiURL, err := rdWebURL(sessionID)
+		displayCfg := config.LoadDisplayConfig()
+
+		uiURL, err := rdWebURLWithOptions(sessionID, displayCfg.Other.Stretch_Video)
 		if err != nil {
 			ready <- err
 			return

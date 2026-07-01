@@ -1,38 +1,69 @@
 :root {
   --stream-ratio: 1.777777;
+  --rd-video-width: 0px;
+  --rd-video-height: 0px;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
 }
 
 html,
 body {
-  overflow: hidden;
   font-family: "Segoe UI", Arial, sans-serif;
   color: #d7d7d7;
+  background: #050505;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 .rd-root {
   width: 100vw;
   height: 100vh;
+  min-width: 0;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   background: radial-gradient(circle at center, #202020 0, #111 45%, #050505 100%);
 }
 
 .rd-stage {
-  width: min(100vw, calc(100vh * var(--stream-ratio)));
-  height: min(100vh, calc(100vw / var(--stream-ratio)));
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   background: #000;
 }
 
 .rd-video {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   background: #000;
   touch-action: none;
+  user-select: none;
+}
+
+.rd-root--stretch .rd-video {
+  width: 100%;
+  height: 100%;
 }
 
 .rd-status {

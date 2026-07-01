@@ -14,6 +14,7 @@ const (
 	DefaultEnableHardwareEncoding = true
 	DefaultForceKeyframeOnPLI     = false
 	DefaultShowRemoteCursor       = false
+	DefaultStretch_Video          = false
 )
 
 var (
@@ -49,6 +50,7 @@ type DisplayConfig struct {
 }
 
 type DisplayOtherConfig struct {
+	Stretch_Video    bool `json:"Stretch_Video"`
 	ShowRemoteCursor bool `json:"Show_Remote_Cursor"`
 }
 
@@ -67,6 +69,7 @@ func DefaultDisplayConfig() DisplayConfig {
 			ForceKeyframeOnPLI:     DefaultForceKeyframeOnPLI,
 		},
 		Other: DisplayOtherConfig{
+			Stretch_Video:    DefaultStretch_Video,
 			ShowRemoteCursor: DefaultShowRemoteCursor,
 		},
 	}
@@ -108,7 +111,28 @@ func LoadDisplayConfig() DisplayConfig {
 		return DefaultDisplayConfig()
 	}
 
+	if !displayConfigHasStretch(data) {
+		_ = SaveDisplayConfig(normalized)
+	}
+
 	return normalized
+}
+
+func displayConfigHasStretch(data []byte) bool {
+	var raw struct {
+		Other map[string]any `json:"Other"`
+	}
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+
+	if raw.Other == nil {
+		return false
+	}
+
+	_, ok := raw.Other["Stretch_Video"]
+	return ok
 }
 
 func SaveDisplayConfig(cfg DisplayConfig) error {

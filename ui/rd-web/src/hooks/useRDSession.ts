@@ -546,7 +546,21 @@ export function useRDSession(sessionID: string) {
       }
     }
 
+    function updateVideoLayoutVars() {
+      const rect = video.getBoundingClientRect();
+
+      document.documentElement.style.setProperty("--rd-video-width", `${Math.max(0, rect.width)}px`);
+      document.documentElement.style.setProperty("--rd-video-height", `${Math.max(0, rect.height)}px`);
+
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        const ratio = video.videoWidth / video.videoHeight;
+        document.documentElement.style.setProperty("--stream-ratio", String(ratio));
+      }
+    }
+
     function reportVideoSize() {
+      updateVideoLayoutVars();
+
       if (!video.videoWidth || !video.videoHeight) {
         return;
       }
@@ -557,13 +571,38 @@ export function useRDSession(sessionID: string) {
       }
 
       lastSizeRef.current = key;
-      const ratio = video.videoWidth / video.videoHeight;
-      document.documentElement.style.setProperty("--stream-ratio", String(ratio));
       window.rdVideoMeta?.(video.videoWidth, video.videoHeight);
     }
 
+    const resizeObserver =
+        typeof ResizeObserver !== "undefined"
+            ? new ResizeObserver(() => {
+              updateVideoLayoutVars();
+            })
+            : null;
+
+    resizeObserver?.observe(video);
+
+    const onWindowResize = () => {
+      updateVideoLayoutVars();
+    };
+
+    window.addEventListener("resize", onWindowResize);
+
     function getVideoContentRect() {
       const rect = video.getBoundingClientRect();
+
+      if (rect.width <= 0 || rect.height <= 0) {
+        return {
+          left: rect.left,
+          top: rect.top,
+          width: 0,
+          height: 0,
+          right: rect.left,
+          bottom: rect.top,
+        };
+      }
+
       if (!video.videoWidth || !video.videoHeight) {
         return rect;
       }
@@ -574,6 +613,7 @@ export function useRDSession(sessionID: string) {
       if (boxRatio > videoRatio) {
         const contentWidth = rect.height * videoRatio;
         const x = rect.left + (rect.width - contentWidth) / 2;
+
         return {
           left: x,
           top: rect.top,
@@ -586,6 +626,7 @@ export function useRDSession(sessionID: string) {
 
       const contentHeight = rect.width / videoRatio;
       const y = rect.top + (rect.height - contentHeight) / 2;
+
       return {
         left: rect.left,
         top: y,
@@ -598,16 +639,28 @@ export function useRDSession(sessionID: string) {
 
     function normalizedPoint(event: MouseEvent | PointerEvent | WheelEvent) {
       const rect = getVideoContentRect();
+
+      if (rect.width <= 0 || rect.height <= 0) {
+        return {
+          x: 0,
+          y: 0,
+          inside: false,
+        };
+      }
+
       const x = (event.clientX - rect.left) / rect.width;
       const y = (event.clientY - rect.top) / rect.height;
-      return {
-        x: Math.max(0, Math.min(1, x)),
-        y: Math.max(0, Math.min(1, y)),
-        inside:
+
+      const inside =
           event.clientX >= rect.left &&
           event.clientX <= rect.right &&
           event.clientY >= rect.top &&
-          event.clientY <= rect.bottom,
+          event.clientY <= rect.bottom;
+
+      return {
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        inside,
       };
     }
 
@@ -1000,6 +1053,9 @@ export function useRDSession(sessionID: string) {
     video.addEventListener("contextmenu", onContextMenu);
     video.addEventListener("loadedmetadata", reportVideoSize);
 
+    updateVideoLayoutVars();
+    reportVideoSize();
+
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("copy", onCopy);
@@ -1220,6 +1276,10 @@ export function useRDSession(sessionID: string) {
       }
 
       window.clearInterval(reportVideoSizeInterval);
+
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", onWindowResize);
+
       if (statsInterval !== null) {
         window.clearInterval(statsInterval);
         statsInterval = null;

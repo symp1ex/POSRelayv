@@ -4,12 +4,12 @@ import { getBootstrapConfig } from "./lib/bootstrap";
 import "./index.css";
 import "./styles/rd.css";
 
-const { sessionID } = getBootstrapConfig();
+const { sessionID, stretch } = getBootstrapConfig();
 
 if (!sessionID) {
     throw new Error("RD session_id is missing");
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <RDViewer sessionID={sessionID} />,
+    <RDViewer sessionID={sessionID} stretch={stretch} />,
 );
